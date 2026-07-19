@@ -1,10 +1,10 @@
 import logging
-from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.messages import HumanMessage, ToolMessage, SystemMessage
 
 logger = logging.getLogger(__name__)
 
 class Agent:
-    def __init__(self, llm, tools, memory):
+    def __init__(self, llm, tools, memory, agent_path="AGENTS.md"):
         self.llm = llm
         if tools:
             self.tool_map = {
@@ -13,8 +13,12 @@ class Agent:
             }
             self.llm.with_tools(tools)
         self.memory = memory
-
+        self.memory.add(SystemMessage(content=self.load_agent_instructions(agent_path)))
         self.max_iterations = 30  # Prevent infinite loops
+
+    def load_agent_instructions(self, path):
+        with open(path) as f:
+            return f.read()
 
     def execute_tools(self, tool_calls):
         for tool_call in tool_calls:
@@ -23,6 +27,7 @@ class Agent:
                 result = tool.invoke(
                     tool_call["args"]
                 )
+                logger.debug("Tool %s executed with result: %s", tool_call["name"], result)
             except Exception as e:
                 logger.error("Error executing tool %s: %s", tool_call["name"], str(e))
                 result = f"Error executing tool {tool_call['name']}: {str(e)}"
