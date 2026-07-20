@@ -52,6 +52,8 @@ Avoid duplicate memories.
 
 Prefer updating an existing memory over creating many small files.
 
+Create tags for each section of memory created.  These tags are used when searching for memories.
+
 ## Memory Retrieval
 
 You have access to long-term memory.  This memory is managed by you and is stored in valid Markdown format.
