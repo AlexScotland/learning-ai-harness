@@ -1,8 +1,8 @@
 import json
 
 from langchain_core.messages import SystemMessage, HumanMessage
-from planners.interface import Planner
-from task import Task
+from planners.interfaces import Planner
+from tasks.task import Task
 
 
 class LLMPlanner(Planner):

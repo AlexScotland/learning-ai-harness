@@ -1,14 +1,15 @@
 from abc import ABC, abstractmethod
 
+from tasks.task import Task
 from state import AgentState
-from task import Task
 
 
-class Planner(ABC):
+class TaskExecutor(ABC):
 
     @abstractmethod
-    def create_plan(
+    def execute(
         self,
+        task: Task,
         state: AgentState
-    ) -> list[Task]:
+    ):
         pass
