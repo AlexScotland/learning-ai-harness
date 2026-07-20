@@ -39,7 +39,7 @@ class AgentState:
     def get_current_task(self):
         if self.current_task >= len(self.plan):
             return None
-    return self.plan[self.current_task]
+        return self.plan[self.current_task]
 
     def complete_current_task(self):
         self.current_task += 1

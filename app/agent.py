@@ -13,7 +13,7 @@ class Agent:
                 for tool in tools
             }
             self.llm.with_tools(tools)
-        self.state.messages.add(SystemMessage(content=self.load_agent_instructions(agent_path)))
+        self.state.conversation.add(SystemMessage(content=self.load_agent_instructions(agent_path)))
         self.max_iterations = 30  # Prevent infinite loops
 
     def load_agent_instructions(self, path):
@@ -32,7 +32,7 @@ class Agent:
                 logger.error("Error executing tool %s: %s", tool_call["name"], str(e))
                 result = f"Error executing tool {tool_call['name']}: {str(e)}"
 
-            self.memory.add(
+            self.state.conversation.add(
                 ToolMessage(
                     content=str(result),
                     tool_call_id=tool_call["id"]
@@ -40,14 +40,14 @@ class Agent:
             )
 
     def run(self, prompt: str):
-        self.memory.add(HumanMessage(content=prompt))
-        logger.debug("Running agent with messages: %s", self.memory.get())
+        self.state.conversation.add(HumanMessage(content=prompt))
+        logger.debug("Running agent with messages: %s", self.state.conversation.get())
 
         iteration = 0
         for iteration in range(self.max_iterations):
-            logger.debug("Invoking LLM with messages: %s", self.memory.get())
-            response = self.llm.invoke(self.memory.get())
-            self.memory.add(response)
+            logger.debug("Invoking LLM with messages: %s", self.state.conversation.get())
+            response = self.llm.invoke(self.state.conversation.get())
+            self.state.conversation.add(response)
             if not response.tool_calls:
                 return response.content
 
