@@ -1,7 +1,9 @@
 import logging
+
 from langchain_core.messages import HumanMessage, ToolMessage, SystemMessage
 
 from state import AgentStatus
+from evaluator import EvaluationAction
 
 logger = logging.getLogger(__name__)
 
@@ -9,11 +11,13 @@ class AgentRuntime:
     def __init__(
         self,
         planner,
+        evaluator,
         task_executor,
         state,
         config
     ):
         self.planner = planner
+        self.evaluator = evaluator
         self.task_executor = task_executor
         self.state = state
         self.state.initialize(system_prompt=self.load_agent_instructions(config.agent_path))
@@ -34,6 +38,23 @@ class AgentRuntime:
                 task,
                 self.state
             )
+
+            evaluation = self.evaluator.evaluate(
+                self.state,
+                task
+            )
+
+            if evaluation.action == EvaluationAction.COMPLETE:
+                return last_result
+
+
+            if evaluation.action == EvaluationAction.REPLAN:
+                tasks = self.planner.create_plan(
+                    self.state
+                )
+
+                self.state.set_plan(tasks)
+                continue
 
             self.state.complete_current_task()
 

@@ -17,6 +17,7 @@ class Task:
     id: str
     description: str
     status: TaskStatus = TaskStatus.PENDING
+    success_criteria: str = "Task completed successfully"
     result: Any = None
     error: str | None = None
     metadata: dict[str, Any] = field(
@@ -25,7 +26,8 @@ class Task:
 
     LLM_SCHEMA = {
         "id": "short_identifier",
-        "description": "what needs to be done"
+        "description": "what needs to be done",
+        "success_criteria": "how to know if it's done"
     }
 
     def start(self):

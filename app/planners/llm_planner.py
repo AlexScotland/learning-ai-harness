@@ -15,7 +15,8 @@ class LLMPlanner(Planner):
         return [
             Task(
                 id=t["id"],
-                description=t["description"]
+                description=t["description"],
+                success_criteria=t.get("success_criteria")
             )
             for t in raw_tasks
         ]

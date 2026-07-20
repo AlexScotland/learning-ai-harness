@@ -8,6 +8,7 @@ from tools.tool_registry import ToolRegistry
 from state import AgentState
 from planners.llm_planner import LLMPlanner
 from tasks.task_executor import LLMTaskExecutor
+from evaluator import TaskEvaluator
 from agent_config import AgentConfig
 
 ALL_TOOLS = [get_current_time, list_files, read_file, list_memory, search_memory, read_memory, remember]
@@ -35,6 +36,7 @@ def main(prompt):
     agent = AgentRuntime(
         planner=planner,
         task_executor=task_executor,
+        evaluator=TaskEvaluator(),
         state=state,
         config=AgentConfig()
     )
