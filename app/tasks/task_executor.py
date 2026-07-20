@@ -3,6 +3,7 @@ import logging
 from langchain_core.messages import HumanMessage, ToolMessage
 
 from tasks.interfaces import TaskExecutor
+from tools.tool_call import ToolCall
 
 logger = logging.getLogger(__name__)
 
@@ -18,17 +19,17 @@ class LLMTaskExecutor(TaskExecutor):
     def execute_tools(self, tool_calls, state):
         for tool_call in tool_calls:
             try:
-                tool = self.registry.get(tool_call["name"])
+                tool = self.registry.get(tool_call.name)
                 result = self.registry.execute(tool_call)
-                logger.debug("Tool %s executed with result: %s", tool_call["name"], result)
+                logger.debug("Tool %s executed with result: %s", tool_call.name, result)
             except Exception as e:
-                logger.error("Error executing tool %s: %s", tool_call["name"], str(e))
-                result = f"Error executing tool {tool_call['name']}: {str(e)}"
+                logger.error("Error executing tool %s: %s", tool_call.name, str(e))
+                result = f"Error executing tool {tool_call.name}: {str(e)}"
 
             state.conversation.add(
                 ToolMessage(
                     content=str(result),
-                    tool_call_id=tool_call["id"]
+                    tool_call_id=tool_call.id
                 )
             )
 
@@ -64,12 +65,19 @@ class LLMTaskExecutor(TaskExecutor):
                     response.content
                 )
                 return response.content
+            tool_calls = [
+                ToolCall(
+                    id=call["id"],
+                    name=call["name"],
+                    args=call["args"]
+                ) for call in response.tool_calls
+            ]
             logger.info(
                 "Executing tools: %s",
-                response.tool_calls
+                tool_calls
             )
             self.execute_tools(
-                response.tool_calls,
+                tool_calls,
                 state
             )
         task.fail(

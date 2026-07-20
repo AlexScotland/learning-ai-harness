@@ -1,4 +1,5 @@
 from langchain_core.tools import BaseTool
+from tools.tool_call import ToolCall
 
 
 class ToolRegistry:
@@ -16,17 +17,16 @@ class ToolRegistry:
     def get(self, name: str) -> BaseTool | None:
         return self._tools.get(name)
 
-    def execute(self, tool_call: dict):
-
-        tool = self.get(tool_call["name"])
+    def execute(self, tool_call: ToolCall):
+        tool = self.get(tool_call.name)
 
         if tool is None:
             raise ValueError(
-                f"Unknown tool: {tool_call['name']}"
+                f"Unknown tool: {tool_call.name}"
             )
 
         return tool.invoke(
-            tool_call["args"]
+            tool_call.args
         )
 
     def list(self):
