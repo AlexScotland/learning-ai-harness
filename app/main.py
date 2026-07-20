@@ -11,13 +11,13 @@ import logging
 SYSTEM_PROMPT = "You are a helpful assistant"
 logging.basicConfig(level=logging.DEBUG)
 
-def main():
-    memory = ConversationMemory()
+def main(prompt):
+    state = AgentState(agent_id="agent_1", goal=prompt)
+    state.conversation = ConversationMemory()
     agent = Agent(
         llm=OllamaProvider(),
-        memory=memory,
+        state=state,
         tools=[get_current_time, list_files, read_file, list_memory, search_memory, read_memory, remember]
     )
-    print(agent.run("Where do i live?"))
 if __name__ == "__main__":
-    main()
+    main("Where do I live?")

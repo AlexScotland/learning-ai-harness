@@ -9,3 +9,16 @@ class ConversationMemory():
 
     def get(self):
         return self.messages
+
+    def to_dict(self):
+        return {
+            "messages": [
+                {
+                    "type": message.type,
+                    "content": message.content,
+                    "additional_kwargs": message.additional_kwargs,
+                    "response_metadata": message.response_metadata,
+                }
+                for message in self.messages
+            ]
+        }

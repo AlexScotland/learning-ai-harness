@@ -4,16 +4,16 @@ from langchain_core.messages import HumanMessage, ToolMessage, SystemMessage
 logger = logging.getLogger(__name__)
 
 class Agent:
-    def __init__(self, llm, tools, memory, agent_path="AGENTS.md"):
+    def __init__(self, llm, tools, state, agent_path="AGENTS.md"):
         self.llm = llm
+        self.state = state
         if tools:
             self.tool_map = {
                 tool.name: tool
                 for tool in tools
             }
             self.llm.with_tools(tools)
-        self.memory = memory
-        self.memory.add(SystemMessage(content=self.load_agent_instructions(agent_path)))
+        self.state.messages.add(SystemMessage(content=self.load_agent_instructions(agent_path)))
         self.max_iterations = 30  # Prevent infinite loops
 
     def load_agent_instructions(self, path):
