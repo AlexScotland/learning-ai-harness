@@ -12,7 +12,13 @@ from tasks.task_executor import LLMTaskExecutor
 from evaluator import TaskEvaluator
 from agent_config import AgentConfig
 from goals.extractor_factory import GoalType, GoalExtractorFactory
-from goals.extractors import MultipleChoiceGoalExtractor, OpenQuestionGoalExtractor
+from goals.extractors import (
+    MultipleChoiceGoalExtractor,
+    OpenQuestionGoalExtractor,
+    SummarizationGoalExtractor,
+    GenerationGoalExtractor,
+    CodeAnalysisGoalExtractor
+)
 from goals.manager import GoalRoutingManager
 
 ALL_TOOLS = [get_pdf_info, read_pdf_page, list_files]
@@ -28,6 +34,9 @@ def main(prompt):
     goal_factory = GoalExtractorFactory()
     goal_factory.register(GoalType.MULTIPLE_CHOICE, MultipleChoiceGoalExtractor)
     goal_factory.register(GoalType.OPEN_QUESTION, OpenQuestionGoalExtractor)
+    goal_factory.register(GoalType.SUMMARIZATION, SummarizationGoalExtractor)
+    goal_factory.register(GoalType.GENERATION, GenerationGoalExtractor)
+    goal_factory.register(GoalType.CODE_ANALYSIS, CodeAnalysisGoalExtractor)
     # Get the goal extractor instance for the multiple-choice type
     router = GoalRoutingManager(llm=llm, factory=goal_factory)
 
