@@ -6,3 +6,4 @@ __pycache__/
 *.py[cod]
 *$py.class
 app/memory/*.md
+app/memory/**/*.pdf

@@ -33,6 +33,9 @@ class AgentState:
     def add_message(self, message):
         self.conversation.add(message)
 
+    def add_goal(self):
+        self.conversation.add(SystemMessage(content=self.goal.text))
+
     def set_plan(self, plan: list):
         self.plan = plan
 

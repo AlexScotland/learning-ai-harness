@@ -27,8 +27,8 @@ class AgentRuntime:
         with open(path) as f:
             return f.read()
 
-    def run(self, goal: str):
-        self.state.goal = goal
+    def run(self):
+        self.state.add_goal()
         self.state.transition_to(AgentStatus.PLANNING)
         tasks = self.planner.create_plan(self.state)
         self.state.set_plan(tasks)

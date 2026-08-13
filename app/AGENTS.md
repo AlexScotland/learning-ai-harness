@@ -38,6 +38,9 @@ Do **not** store:
 - Tool results that can be reproduced
 - Information that only matters for the current task
 
+## PDF Files
+PDF files are used for storing data that is truthful.  Anything within a PDF can be used as source material to answer a question.
+
 ## Memory Management
 
 Before creating a new memory file:

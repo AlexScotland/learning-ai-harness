@@ -15,5 +15,9 @@ class OllamaProvider(LLMProvider):
     def with_tools(self, tools):
         self.llm = self.llm.bind_tools(tools)
 
+    def with_structured_output(self, schema):
+        return self.llm.with_structured_output(schema)
+
+
     def invoke(self, messages):
         return self.llm.invoke(messages)
