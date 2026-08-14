@@ -68,12 +68,5 @@ def main(prompt):
 
 if __name__ == "__main__":
     main("""
-        Please select one of the following answers to the scenario below. Only respond with the answer text, do not include any other text or formatting.
-        Question:  Mary is a specialized chemistry MLT in a laboratory that does significant volumes of hormone testing on various analyzers. A vendor representative approached her and asked if she would be interested in providing some raw data for a paper on estrogen levels in post-menopausal women. They assured her that patients’ names would not be published and they were strictly interested in the women’s ages and estrogen results. What should Mary do?
-
-        Answers:
-            - Mary should pursue the offer as it could be an excellent opportunity for her and the other staff to get involved in a study and provide them with additional knowledge that would benefit their patients.
-            - Mary should not consider the offer as the collection of personal information, even age and sex, is limited and can never be shared.
-            - Mary should take the matter to the Medical Director for their review and/or discuss with the hospital’s Ethics Committee.
-            - Mary should anonymize the results and provide the information to the vendor.
+        Can you take a look at the /app/ directory and do a code audit on the repo?
          """)
