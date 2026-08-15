@@ -11,15 +11,8 @@ from planners.llm_planner import LLMPlanner
 from tasks.task_executor import LLMTaskExecutor
 from evaluator import TaskEvaluator
 from agent_config import AgentConfig
-from goals.extractor_factory import GoalType, GoalExtractorFactory
-from goals.extractors import (
-    MultipleChoiceGoalExtractor,
-    OpenQuestionGoalExtractor,
-    SummarizationGoalExtractor,
-    GenerationGoalExtractor,
-    CodeAnalysisGoalExtractor
-)
-from goals.manager import GoalRoutingManager
+from goals import Goal, GoalExtractor
+
 
 ALL_TOOLS = [get_pdf_info, read_pdf_page, list_files,
              read_file, search_memory, read_memory, remember, list_memory]
@@ -33,15 +26,8 @@ def main(prompt):
     llm=OllamaProvider(
         model="Duggles/qwen-3-8-larger-context:latest"
     )
-    # Setup the goal extractor factory and register the multiple-choice extractor
-    goal_factory = GoalExtractorFactory()
-    goal_factory.register(GoalType.MULTIPLE_CHOICE, MultipleChoiceGoalExtractor)
-    goal_factory.register(GoalType.OPEN_QUESTION, OpenQuestionGoalExtractor)
-    goal_factory.register(GoalType.SUMMARIZATION, SummarizationGoalExtractor)
-    goal_factory.register(GoalType.GENERATION, GenerationGoalExtractor)
-    goal_factory.register(GoalType.CODE_ANALYSIS, CodeAnalysisGoalExtractor)
-    # Get the goal extractor instance for the multiple-choice type
-    router = GoalRoutingManager(llm=llm, factory=goal_factory)
+    # One extractor, one Goal. No router, no factory, no per-type registration.
+    goal_extractor = GoalExtractor(llm=llm)
 
     planner = LLMPlanner(llm=llm)
     config = AgentConfig()
@@ -53,7 +39,7 @@ def main(prompt):
         tool_registry=tools_registry,
         max_iterations=config.max_iterations
     )
-    goal = router.route_and_extract(prompt)
+    goal = goal_extractor.extract(prompt)
     # goal = GoalExtractor(llm=llm).extract_goal_data(prompt)
     state = AgentState(agent_id="agent_1", goal=goal, conversation=conversation_memory)
     logging.info("Agent state initialized: %s", state.to_dict())    
