@@ -5,6 +5,7 @@ from tools.utils import get_current_time
 from tools.summarize import list_files, read_file
 from tools.memory import list_memory, search_memory, read_memory, remember
 from tools.pdf import read_pdf_page, get_pdf_info
+from tools.python_tools import run_python, validate_python
 from tools.tool_registry import ToolRegistry
 from state import AgentState
 from planners.llm_planner import LLMPlanner
@@ -13,9 +14,9 @@ from evaluator import TaskEvaluator
 from agent_config import AgentConfig
 from goals import Goal, GoalExtractor
 
-
-ALL_TOOLS = [get_pdf_info, read_pdf_page, list_files,
-             read_file, search_memory, read_memory, remember, list_memory]
+ALL_TOOLS = [get_pdf_info, read_pdf_page, list_files, read_file,
+             list_memory, search_memory, read_memory, remember,
+             validate_python, run_python]
 
 
 import logging
