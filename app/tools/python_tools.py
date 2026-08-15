@@ -7,6 +7,7 @@ import sys
 import time
 
 from langchain_core.tools import tool
+from pydantic import BaseModel, Field
 
 
 # Where the model's scripts land. Inside the app so you and the model share
@@ -47,8 +48,14 @@ def _truncate(data: bytes, cap: int = _OUTPUT_CAP) -> str:
     omitted = len(text) - len(head) - len(tail)
     return head + f"\n... [{omitted} chars truncated ...]\n" + tail, True
 
+class RunPythonInput(BaseModel):
+    code: str = Field(description="The Python source code snippet to run.")
+    args: list[str] = Field(default_factory=list, description="Optional list of CLI arguments.")
+    stdin: str = Field(default="", description="Optional text to feed into standard input.")
+    timeout: int = Field(default=10, description="Seconds before the process is killed.")
 
-@tool
+
+@tool(args_schema=RunPythonInput)
 def run_python(
     code: str,
     args: list[str] = [],
