@@ -87,15 +87,15 @@ class ExtractedSummarizationGoal(BaseModel):
     )
     @property
     def text(self) -> str:
-        focus_block = "\n".join([f"  * {focus}" for focus in self.goal.required_focus_areas]) if self.goal.required_focus_areas else "  * General comprehensive overview"
-        sources_block = ", ".join(self.goal.suggested_sources) if self.goal.suggested_sources else "None Specified"
+        focus_block = "\n".join([f"  * {focus}" for focus in self.required_focus_areas]) if self.required_focus_areas else "  * General comprehensive overview"
+        sources_block = ", ".join(self.suggested_sources) if self.suggested_sources else "None Specified"
         
         return f"""
         =========================================
         CURRENT VERIFICATION HARNESS TARGETS (SUMMARIZATION):
-        - INTENT: {self.goal.intent}
-        - TARGET SUBJECT: {self.goal.target_subject}
-        - REQUIRED FORMAT/DEPTH: {self.goal.summary_depth}
+        - INTENT: {self.intent}
+        - TARGET SUBJECT: {self.target_subject}
+        - REQUIRED FORMAT/DEPTH: {self.summary_depth}
 
         CRITICAL AREAS OF FOCUS:
         {focus_block}

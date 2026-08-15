@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from enum import Enum
 
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import SystemMessage, HumanMessage
 
 from memory import ConversationMemory
 
@@ -34,7 +34,7 @@ class AgentState:
         self.conversation.add(message)
 
     def add_goal(self):
-        self.conversation.add(SystemMessage(content=self.goal.text))
+        self.conversation.add(HumanMessage(content=self.goal.text))
 
     def set_plan(self, plan: list):
         self.plan = plan

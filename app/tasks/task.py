@@ -18,6 +18,7 @@ class Task:
     description: str
     status: TaskStatus = TaskStatus.PENDING
     success_criteria: str = "Task completed successfully"
+    budget: int = 6  # Task calls the AI thinks it needs
     result: Any = None
     error: str | None = None
     metadata: dict[str, Any] = field(
@@ -27,7 +28,8 @@ class Task:
     LLM_SCHEMA = {
         "id": "short_identifier",
         "description": "what needs to be done",
-        "success_criteria": "how to know if it's done"
+        "success_criteria": "how to know if it's done",
+        "budget": 6
     }
 
     def start(self):

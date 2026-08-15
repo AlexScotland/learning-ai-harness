@@ -21,7 +21,8 @@ from goals.extractors import (
 )
 from goals.manager import GoalRoutingManager
 
-ALL_TOOLS = [get_pdf_info, read_pdf_page, list_files]
+ALL_TOOLS = [get_pdf_info, read_pdf_page, list_files,
+             read_file, search_memory, read_memory, remember, list_memory]
 
 
 import logging
@@ -29,7 +30,9 @@ logging.basicConfig(level=logging.INFO)
 
 
 def main(prompt):
-    llm=OllamaProvider()
+    llm=OllamaProvider(
+        model="Duggles/qwen-3-8-larger-context:latest"
+    )
     # Setup the goal extractor factory and register the multiple-choice extractor
     goal_factory = GoalExtractorFactory()
     goal_factory.register(GoalType.MULTIPLE_CHOICE, MultipleChoiceGoalExtractor)
@@ -68,5 +71,6 @@ def main(prompt):
 
 if __name__ == "__main__":
     main("""
-        Can you take a look at the /app/ directory and do a code audit on the repo?
+         DO NOT WRITE ANY CODE!
+        I want to make you a new tool! It will be a tool to let you validate, generate and run python code!  Looking at the architecture of the /app/ directory - what do you suggest we do for these tools?
          """)
