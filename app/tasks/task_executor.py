@@ -84,8 +84,9 @@ class LLMTaskExecutor(TaskExecutor):
             state.conversation.add(response)
 
             if not response.tool_calls:
-                task.complete(response.content)
-                return response.content
+                content = (response.content or "").strip()
+                task.complete(content)
+                return content
 
             tool_calls = [
                 ToolCall(id=call["id"], name=call["name"], args=call["args"])
@@ -127,3 +128,4 @@ class LLMTaskExecutor(TaskExecutor):
         task.fail(
             f"Exceeded ceiling of {ceiling} and produced no final answer"
         )
+        return ""

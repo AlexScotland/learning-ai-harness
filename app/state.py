@@ -38,6 +38,7 @@ class AgentState:
 
     def set_plan(self, plan: list):
         self.plan = plan
+        self.current_task = 0
 
     def transition_to(self, new_status: AgentStatus):
         self.status = new_status

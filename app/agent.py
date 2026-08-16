@@ -75,12 +75,18 @@ class AgentRuntime:
     def chat(self, user_input):
         """Handle one conversational turn.
 
-        Extracts a Goal from ``user_input``, executes it, and returns the
-        agent's answer. Conversation history is retained in ``state.conversation``
-        so successive turns form a coherent multi-turn dialogue.
+        Extracts a Goal from ``user_input`` (using the full conversation
+        history for context), executes it, and returns the agent's answer.
+        Conversation history is retained in ``state.conversation`` so
+        successive turns form a coherent multi-turn dialogue.
         """
+        # Pass the full conversation so far (all prior messages) so the
+        # extracted Goal reflects the entire conversation, not just this
+        # single message.
+        history = self.state.conversation.get()
+
         if self.goal_extractor is not None:
-            self.state.goal = self.goal_extractor.extract(user_input)
+            self.state.goal = self.goal_extractor.extract(user_input, history)
         else:
             self.state.goal = user_input
 
