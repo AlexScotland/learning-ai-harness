@@ -48,6 +48,98 @@ def _truncate(data: bytes, cap: int = _OUTPUT_CAP) -> str:
     omitted = len(text) - len(head) - len(tail)
     return head + f"\n... [{omitted} chars truncated ...]\n" + tail, True
 
+
+def _execute_isolated(
+    script_path: str,
+    cwd: str,
+    args: list[str],
+    stdin: str,
+    timeout: int,
+    workspace_label: str,
+) -> str:
+    """Shared execution core: run an EXISTING file in an isolated child process.
+
+    This is the single place that owns the isolation behavior - kernel rlimits
+    via _apply_limits, its own process group (start_new_session) so a timeout
+    kills the whole tree, and output truncation via _truncate. Both run_python
+    (after it writes a fresh main.py) and run_file (an existing file) funnel
+    through here, so their isolation is identical and stays in one code path.
+
+    Args:
+      script_path:      the .py file to execute (must already exist on disk).
+      cwd:              working directory for the child (where relative paths resolve).
+      args:             CLI args, exposed to the script as sys.argv[1:].
+      stdin:            text to feed the script's standard input.
+      timeout:          wall-clock seconds before the whole group is killed.
+      workspace_label:  human label for the report's `workspace:` line.
+    """
+    timeout = max(1, int(timeout))
+    cmd = [sys.executable, "-I", script_path, *list(args or [])]
+
+    proc = None
+    timed_out = False
+    stdout_b = b""
+    stderr_b = b""
+    start = time.monotonic()
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=cwd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,  # own process group -> killpg reaches children
+            preexec_fn=lambda: _apply_limits(cpu_seconds=2 * timeout),
+        )
+        try:
+            stdout_b, stderr_b = proc.communicate(
+                input=(stdin or "").encode("utf-8"), timeout=timeout
+            )
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            # kill the whole group (script + anything it spawned)
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except Exception:
+                pass
+            try:
+                stdout_b, stderr_b = proc.communicate(timeout=5)
+            except Exception:
+                stdout_b, stderr_b = b"", b""
+            proc.wait(timeout=5)
+    except Exception as e:
+        return (
+            "=== RUN RESULT ===\n"
+            "status: FAIL\n"
+            f"reason: failed to launch subprocess: {e}\n"
+        )
+    duration_ms = int((time.monotonic() - start) * 1000)
+    exit_code = proc.returncode if proc is not None else -1
+
+    stdout_s, out_trunc = _truncate(stdout_b or b"")
+    stderr_s, err_trunc = _truncate(stderr_b or b"")
+    truncated = out_trunc or err_trunc
+
+    status = "OK" if (exit_code == 0 and not timed_out) else "FAIL"
+    if timed_out:
+        status_detail = f"FAIL (timeout after {timeout}s; process group killed)"
+    else:
+        status_detail = f"{'OK' if exit_code == 0 else 'FAIL'} (exit {exit_code})"
+
+    lines = [
+        "=== RUN RESULT ===",
+        f"status: {status_detail}",
+        f"duration_ms: {duration_ms}",
+        f"workspace: {workspace_label}",
+        "stdout:",
+        stdout_s.strip(),
+        "stderr:",
+        stderr_s.strip(),
+        f"truncated: {'yes' if truncated else 'no'}",
+    ]
+    return "\n".join(lines)
+
+
 class RunPythonInput(BaseModel):
     code: str = Field(description="The Python source code snippet to run.")
     args: list[str] = Field(default_factory=list, description="Optional list of CLI arguments.")
@@ -101,71 +193,121 @@ def run_python(
     with open(main_path, "w", encoding="utf-8") as f:
         f.write(code)
 
-    timeout = max(1, int(timeout))
-    cmd = [sys.executable, "-I", main_path, *list(args or [])]
+    # 2) run it in place via the shared isolation core
+    return _execute_isolated(main_path, run_dir, args, stdin, timeout, run_dir)
 
-    proc = None
-    timed_out = False
-    stdout_b = b""
-    stderr_b = b""
-    start = time.monotonic()
-    try:
-        proc = subprocess.Popen(
-            cmd,
-            cwd=run_dir,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            start_new_session=True,  # own process group -> killpg reaches children
-            preexec_fn=lambda: _apply_limits(cpu_seconds=2 * timeout),
-        )
-        try:
-            stdout_b, stderr_b = proc.communicate(
-                input=(stdin or "").encode("utf-8"), timeout=timeout
-            )
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            # kill the whole group (script + anything it spawned)
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-            except Exception:
-                pass
-            try:
-                stdout_b, stderr_b = proc.communicate(timeout=5)
-            except Exception:
-                stdouts = stdout_b, stderr_b = b"", b""
-            proc.wait(timeout=5)
-    except Exception as e:
+
+class RunFileInput(BaseModel):
+    file_path: str = Field(description="Path to an existing Python file to execute in place.")
+    args: list[str] = Field(default_factory=list, description="Optional list of CLI arguments.")
+    stdin: str = Field(default="", description="Optional text to feed into standard input.")
+    timeout: int = Field(default=10, description="Seconds before the process is killed.")
+
+
+@tool(args_schema=RunFileInput)
+def run_file(
+    file_path: str,
+    args: list[str] = [],
+    stdin: str = "",
+    timeout: int = 10,
+) -> str:
+    """
+    Execute a previously-written .py file from disk using the shared
+    _execute_isolated helper. Reuses the exact same isolation as run_python:
+    kernel rlimits (_apply_limits), process-group kill on timeout, and output
+    truncation (_truncate). Unlike run_python, the file is NOT recreated - it
+    is run as-is, so edits made with edit_file take effect on the next call.
+
+    This is the 're-run the same file' half of the iterative coding-and-testing
+    loop: create once with write_file, patch with edit_file, re-run with run_file.
+
+    Args:
+      file_path: path to the .py file to run (created with write_file or
+                 edited with edit_file).
+      args:      optional list of CLI args, available as sys.argv[1:] in the code.
+      stdin:     optional text to feed the script's standard input.
+      timeout:   wall-clock seconds before the whole process group is killed.
+
+    Returns the same === RUN RESULT === block as run_python.
+    """
+    if not file_path or not str(file_path).strip():
         return (
             "=== RUN RESULT ===\n"
             "status: FAIL\n"
-            f"reason: failed to launch subprocess: {e}\n"
+            "reason: no file_path provided (empty)\n"
         )
-    duration_ms = int((time.monotonic() - start) * 1000)
-    exit_code = proc.returncode if proc is not None else -1
+    target = os.path.abspath(os.path.expanduser(str(file_path)))
+    if not os.path.isfile(target):
+        return (
+            "=== RUN RESULT ===\n"
+            "status: FAIL\n"
+            f"reason: {file_path} not found (use write_file to create it first)\n"
+        )
+    return _execute_isolated(target, os.path.dirname(target), args, stdin, timeout, os.path.dirname(target))
 
-    stdout_s, out_trunc = _truncate(stdout_b or b"")
-    stderr_s, err_trunc = _truncate(stderr_b or b"")
-    truncated = out_trunc or err_trunc
 
-    status = "OK" if (exit_code == 0 and not timed_out) else "FAIL"
-    if timed_out:
-        status_detail = f"FAIL (timeout after {timeout}s; process group killed)"
-    else:
-        status_detail = f"{'OK' if exit_code == 0 else 'FAIL'} (exit {exit_code})"
+class EditFileInput(BaseModel):
+    path: str = Field(description="Path to the existing file to edit.")
+    old: str = Field(description="Exact text to find in the file (must match, including whitespace).")
+    new: str = Field(description="Replacement text (may be empty to delete the match).")
+    replace_all: bool = Field(default=False, description="Replace every occurrence instead of just the first.")
 
-    lines = [
-        "=== RUN RESULT ===",
-        f"status: {status_detail}",
-        f"duration_ms: {duration_ms}",
-        f"workspace: {run_dir}",
-        "stdout:",
-        stdout_s.strip(),
-        "stderr:",
-        stderr_s.strip(),
-        f"truncated: {'yes' if truncated else 'no'}",
-    ]
-    return "\n".join(lines)
+
+@tool(args_schema=EditFileInput)
+def edit_file(
+    path: str,
+    old: str,
+    new: str,
+    replace_all: bool = False,
+) -> str:
+    """
+    Surgically edit an EXISTING file WITHOUT resupplying the whole thing.
+    Finds the first occurrence of `old` (or all of them if replace_all) and
+    replaces it with `new`. This is the 'mutate' half of the iterative
+    coding-and-testing loop: create once with write_file, then patch with
+    edit_file and re-run with run_file - no need to reopen or re-paste the file.
+
+    Args:
+      path:        path to the file to edit (must already exist).
+      old:         exact text to find (must match, including whitespace).
+      new:         replacement text (empty string deletes the match).
+      replace_all: replace every occurrence instead of just the first.
+
+    Returns a short confirmation, or a clear error if `old` is not found or is
+    ambiguous (multiple matches with replace_all=False).
+    """
+    if not path or not str(path).strip():
+        return "Error: 'path' is required."
+    if old is None or old == "":
+        return "Error: 'old' must be a non-empty string to locate the edit."
+    target = os.path.abspath(os.path.expanduser(str(path)))
+    if not os.path.isfile(target):
+        return f"Error: {path} does not exist. Use write_file to create it first."
+    try:
+        with open(target, encoding="utf-8") as f:
+            text = f.read()
+    except Exception as e:
+        return f"Error reading {path}: {e}"
+
+    count = text.count(old)
+    if count == 0:
+        return "Error: `old` not found in file (nothing to replace). Check whitespace/indentation."
+    if count > 1 and not replace_all:
+        return (
+            f"Error: `old` is ambiguous ({count} matches). "
+            "Pass replace_all=True or a more specific `old`."
+        )
+
+    updated = text.replace(old, new) if replace_all else text.replace(old, new, 1)
+    try:
+        with open(target, "w", encoding="utf-8") as f:
+            f.write(updated)
+    except Exception as e:
+        return f"Error writing {path}: {e}"
+    replaced = count if replace_all else 1
+    return f"Edited {target}: replaced {replaced} occurrence(s)."
+
+
 # Modules that are network / process / exec-related. Flagged (not blocked) so
 # the model is aware; the run tool is where you'd hard-enforce if you want.
 DANGEROUS_IMPORTS = {
