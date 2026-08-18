@@ -1,4 +1,4 @@
-import type { Message } from "@/hooks/useChat";
+import type { Message } from "@/app/hooks/useChat";
 import styles from "./MessageList.module.css";
 
 interface MessageListProps {

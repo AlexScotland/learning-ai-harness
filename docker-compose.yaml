@@ -20,9 +20,11 @@
         dockerfile: Dockerfile
       volumes:
         - "./chat-ui/:/app/"
-      command: "npm run dev"
+      command: "tail -f /dev/null"
       ports:
         - "8000:3000"
+      environment:
+        - NODE_ENV=development
 
     core:
       container_name: searxng-core
