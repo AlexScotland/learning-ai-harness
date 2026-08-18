@@ -308,6 +308,128 @@ def edit_file(
     return f"Edited {target}: replaced {replaced} occurrence(s)."
 
 
+class RunShellInput(BaseModel):
+    command: str = Field(description="The shell command to execute (e.g., \"ls -la /tmp\", \"grep -r pattern .\").")
+    working_directory: str = Field(default="", description="Absolute path to the directory in which to run the command (default: workspace dir).")
+    timeout: int = Field(default=10, description="Wall-clock seconds before the whole process group is killed (default: 10).")
+    env: dict[str, str] = Field(default_factory=dict, description="Optional environment variables to set for the command (key-value pairs).")
+    stdin: str = Field(default="", description="Optional text to feed into the command's standard input.")
+
+
+@tool(args_schema=RunShellInput)
+def run_shell(
+    command: str,
+    working_directory: str = "",
+    timeout: int = 10,
+    env: dict[str, str] = {},
+    stdin: str = "",
+) -> str:
+    """
+    Execute a Linux shell command (bash/sh) in an isolated child process and report
+    the real result (stdout, stderr, exit code, timing).
+
+    Isolation (the boundary, honestly scoped):
+      - separate process, no shared state with the harness
+      - kernel rlimits: 2 GB memory, 64 MB max file size, 512 processes,
+        256 open files, CPU bounded by timeout
+      - wall-clock timeout (default 10 s); the whole process group is killed
+        on exceed, including any child processes the command spawned
+    It stops RUNAWAY behavior (infinite loops, memory/disk/fd blowups). It is
+    not a security sandbox against adversarial code (that needs a container).
+
+    Args:
+      command:            the shell command to execute (e.g., "ls -la /tmp").
+      working_directory:  absolute path to run the command from (default: cwd).
+      timeout:            wall-clock seconds before the whole process group is killed.
+      env:                optional environment variables to set for the command.
+      stdin:              optional text to feed the command's standard input.
+
+    Returns a === RUN RESULT === block with status OK / FAIL, duration_ms,
+    stdout, stderr, and exit code.
+    """
+    command = (command or "").strip()
+    if not command:
+        return (
+            "=== RUN RESULT ===\n"
+            "status: FAIL\n"
+            "reason: no command provided (empty)\n"
+        )
+
+    timeout = max(1, int(timeout))
+    cwd = working_directory or os.getcwd()
+
+    # Merge env: start from os.environ, overlay user-supplied vars
+    full_env = dict(os.environ)
+    if env:
+        full_env.update(env)
+
+    cmd = ["bash", "-c", command]
+
+    proc = None
+    timed_out = False
+    stdout_b = b""
+    stderr_b = b""
+    start = time.monotonic()
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=cwd,
+            env=full_env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,  # own process group -> killpg reaches children
+            preexec_fn=lambda: _apply_limits(cpu_seconds=2 * timeout),
+        )
+        try:
+            stdout_b, stderr_b = proc.communicate(
+                input=(stdin or "").encode("utf-8"), timeout=timeout
+            )
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            # kill the whole group (command + anything it spawned)
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except Exception:
+                pass
+            try:
+                stdout_b, stderr_b = proc.communicate(timeout=5)
+            except Exception:
+                stdout_b, stderr_b = b"", b""
+            proc.wait(timeout=5)
+    except Exception as e:
+        return (
+            "=== RUN RESULT ===\n"
+            "status: FAIL\n"
+            f"reason: failed to launch subprocess: {e}\n"
+        )
+    duration_ms = int((time.monotonic() - start) * 1000)
+    exit_code = proc.returncode if proc is not None else -1
+
+    stdout_s, out_trunc = _truncate(stdout_b or b"")
+    stderr_s, err_trunc = _truncate(stderr_b or b"")
+    truncated = out_trunc or err_trunc
+
+    status = "OK" if (exit_code == 0 and not timed_out) else "FAIL"
+    if timed_out:
+        status_detail = f"FAIL (timeout after {timeout}s; process group killed)"
+    else:
+        status_detail = f"{'OK' if exit_code == 0 else 'FAIL'} (exit {exit_code})"
+
+    lines = [
+        "=== RUN RESULT ===",
+        f"status: {status_detail}",
+        f"duration_ms: {duration_ms}",
+        f"working_directory: {cwd}",
+        "stdout:",
+        stdout_s.strip(),
+        "stderr:",
+        stderr_s.strip(),
+        f"truncated: {'yes' if truncated else 'no'}",
+    ]
+    return "\n".join(lines)
+
+
 # Modules that are network / process / exec-related. Flagged (not blocked) so
 # the model is aware; the run tool is where you'd hard-enforce if you want.
 DANGEROUS_IMPORTS = {

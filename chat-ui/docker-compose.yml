@@ -1,0 +1,47 @@
+# =============================================================================
+# docker-compose.yml — chat-ui frontend
+#
+# FIX: The previous version had a `command:` override that ran `next start`,
+# which requires /app/.next/required-server-files.json — a file that is
+# intentionally NOT present in the standalone image.  The override has been
+# removed so the image's CMD ["node", "server.js"] takes effect.
+# =============================================================================
+
+services:
+  frontend:
+    image: chat-ui:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+
+    # ── THE FIX ──────────────────────────────────────────────────────────
+    # ❌  REMOVE any of these (they were the root cause of the 500):
+    #     command: ["next", "start"]
+    #     command: ["npm", "run", "start"]
+    #     entrypoint: ["next"]
+    #
+    # ✅  The image's CMD ["node", "server.js"] is now used automatically.
+    #     If you want to be explicit (e.g. to override a base image CMD):
+    #
+    #     command: ["node", "server.js"]
+    #
+    # ─────────────────────────────────────────────────────────────────────
+
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
