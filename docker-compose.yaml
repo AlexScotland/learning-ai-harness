@@ -3,10 +3,14 @@
       build:
         context: ./app/
         dockerfile: Dockerfile
+      environment:
+        - SEARXNG_HOST=http://core:8080
       volumes:
         - "./app/:/app/"
         - "./chat-ui/:/chat-ui/"
       container_name: agent-app
+      depends_on:
+        - core
       extra_hosts:
       - "host.docker.internal:host-gateway"
 

@@ -7,6 +7,7 @@ from tools.memory import list_memory, search_memory, read_memory, remember
 from tools.pdf import read_pdf_page, get_pdf_info
 from tools.python_tools import validate_python, run_python, run_file, edit_file, run_shell
 from tools.files import write_file
+from tools.search import web_search
 from tools.tool_registry import ToolRegistry
 from state import AgentState
 from planners.llm_planner import LLMPlanner
@@ -18,7 +19,7 @@ from goals import Goal, GoalExtractor
 ALL_TOOLS = [get_pdf_info, read_pdf_page, list_files, read_file,
              list_memory, search_memory, read_memory, remember,
              validate_python, run_python, run_file, edit_file, write_file,
-             run_shell]
+             run_shell, web_search]
 
 
 import logging
