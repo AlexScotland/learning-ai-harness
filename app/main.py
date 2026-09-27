@@ -19,7 +19,7 @@ from goals import Goal, GoalExtractor
 ALL_TOOLS = [get_pdf_info, read_pdf_page, list_files, read_file,
              list_memory, search_memory, read_memory, remember,
              validate_python, run_python, run_file, edit_file, write_file,
-             run_shell, web_search]
+             run_shell, web_search, get_current_time]
 
 
 import logging
@@ -35,8 +35,13 @@ BANNER = (
 
 
 def build_agent():
-    """Construct a fully-wired agent that shares one ConversationMemory,
-    so every turn of the conversation builds on the previous ones."""
+    """Construct a fully-wired agent with its own fresh ConversationMemory.
+
+    Safe to call once per conversation turn (the HTTP server does exactly
+    this): the turn's history is then supplied explicitly via
+    ``AgentRuntime.chat(history=...)``. The REPL reuses one instance instead
+    and lets turns accumulate in the shared memory.
+    """
     llm = OllamaProvider(model="Duggles/qwen-3-8-larger-context:latest")
 
     # One extractor, one Goal. No router, no factory, no per-type registration.

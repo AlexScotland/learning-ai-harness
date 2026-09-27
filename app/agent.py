@@ -33,7 +33,8 @@ class AgentRuntime:
         self.task_executor = task_executor
         self.state = state
         self.goal_extractor = goal_extractor
-        self.state.initialize(system_prompt=self.load_agent_instructions(config.agent_path))
+        self.system_prompt = self.load_agent_instructions(config.agent_path)
+        self.state.initialize(system_prompt=self.system_prompt)
         self.max_iterations = config.max_iterations
 
     def load_agent_instructions(self, path):
@@ -72,14 +73,24 @@ class AgentRuntime:
         """One-shot execution of the goal already set on ``state``."""
         return self._execute()
 
-    def chat(self, user_input):
+    def chat(self, user_input, history=None):
         """Handle one conversational turn.
 
         Extracts a Goal from ``user_input`` (using the full conversation
         history for context), executes it, and returns the agent's answer.
-        Conversation history is retained in ``state.conversation`` so
-        successive turns form a coherent multi-turn dialogue.
+
+        ``history`` is optional and only needed in stateless (HTTP) mode: when
+        provided, it replaces the conversation before this turn, so the agent
+        works from the client-supplied thread instead of server-side memory.
+        When omitted (the REPL path), the shared ``ConversationMemory`` is
+        used as before and successive turns form a coherent multi-turn dialogue.
         """
+        # Stateless mode: the caller supplies the prior conversation.
+        if history is not None:
+            self.state.conversation.replace(
+                [SystemMessage(content=self.system_prompt), *history]
+            )
+
         # Pass the full conversation so far (all prior messages) so the
         # extracted Goal reflects the entire conversation, not just this
         # single message.

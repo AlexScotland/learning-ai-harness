@@ -7,6 +7,14 @@ class ConversationMemory():
     def add(self, message):
         self.messages.append(message)
 
+    def replace(self, messages: list[BaseMessage]):
+        """Replace the entire conversation with a new set of messages.
+
+        Used in stateless (HTTP) mode: each request supplies the conversation
+        itself, so the server never carries turns over on its own.
+        """
+        self.messages = list(messages)
+
     def get(self):
         return self.messages
 
