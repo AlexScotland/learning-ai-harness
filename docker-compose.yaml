@@ -3,11 +3,13 @@
       build:
         context: ./app/
         dockerfile: Dockerfile
+      command: python server.py
       environment:
         - SEARXNG_HOST=http://core:8080
       volumes:
         - "./app/:/app/"
-        - "./chat-ui/:/chat-ui/"
+      ports:
+        - "8000:8000"
       container_name: agent-app
       depends_on:
         - core
@@ -15,16 +17,13 @@
       - "host.docker.internal:host-gateway"
 
     frontend:
-      build: 
+      build:
         context: ./chat-ui/
         dockerfile: Dockerfile
-      volumes:
-        - "./chat-ui/:/app/"
-      command: "tail -f /dev/null"
+        args:
+          NEXT_PUBLIC_API_URL: http://localhost:8000
       ports:
-        - "8000:3000"
-      environment:
-        - NODE_ENV=development
+        - "3000:3000"
 
     core:
       container_name: searxng-core

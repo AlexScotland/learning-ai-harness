@@ -16,5 +16,8 @@ RUN apt-get update && \
 # Copy the rest of the application code
 COPY . /app
 
+# The API (server.py) listens here; docker-compose publishes it.
+EXPOSE 8000
+
 # Command to keep the container running
 CMD ["tail", "-f", "/dev/null"]
