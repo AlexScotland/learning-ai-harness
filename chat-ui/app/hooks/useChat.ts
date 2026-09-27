@@ -19,11 +19,48 @@ interface UseChatReturn {
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+// The backend is stateless: the conversation is owned by the frontend and
+// sent with every POST. The thread itself is persisted to localStorage so a
+// page refresh (or restart) restores it — no server-side session, no DB.
+const STORAGE_KEY = "learning-ai-harness.thread.v1";
+
+function loadThread(): Message[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (m): m is Message =>
+        m &&
+        (m.role === "user" || m.role === "agent") &&
+        typeof m.content === "string"
+    );
+  } catch {
+    return [];
+  }
+}
+
+function saveThread(messages: Message[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
+  } catch {
+    // Storage full or blocked — the thread still works for this session.
+  }
+}
+
 export function useChat(): UseChatReturn {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>(loadThread);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  // Persist the thread on every change so it survives refresh/restart.
+  useEffect(() => {
+    saveThread(messages);
+  }, [messages]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -36,6 +73,9 @@ export function useChat(): UseChatReturn {
     async (text: string) => {
       const trimmed = text.trim();
       if (!trimmed || loading) return;
+
+      // Prior turns (everything already in the thread before this message).
+      const prior: Message[] = messages;
 
       // Optimistic user message
       const userMsg: Message = {
@@ -56,7 +96,10 @@ export function useChat(): UseChatReturn {
         const res = await fetch(`${API_URL}/api/chat`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: trimmed }),
+          body: JSON.stringify({
+            message: trimmed,
+            conversation: prior.map(({ role, content }) => ({ role, content })),
+          }),
           signal: controller.signal,
         });
 
@@ -92,12 +135,19 @@ export function useChat(): UseChatReturn {
         setLoading(false);
       }
     },
-    [loading]
+    [loading, messages]
   );
 
   const clearMessages = useCallback(() => {
     setMessages([]);
     setError(null);
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.removeItem(STORAGE_KEY);
+      } catch {
+        // ignore storage errors
+      }
+    }
   }, []);
 
   return { messages, loading, error, sendMessage, clearMessages };
