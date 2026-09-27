@@ -9,3 +9,6 @@ app/memory/*.md
 app/memory/**/*.pdf
 # Python Workshop files
 app/python_workspace
+# Local test venv
+.venv-test/
+.venv/
