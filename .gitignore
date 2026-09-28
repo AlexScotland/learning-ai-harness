@@ -12,3 +12,6 @@ app/python_workspace
 # Local test venv
 .venv-test/
 .venv/
+**/*.dump
+**/*.rdb
+searxng/valkey-data/dump.rdb
