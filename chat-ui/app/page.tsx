@@ -1,47 +1,47 @@
 "use client";
 
-import { useEffect, useRef } from "react";
 import { useChat } from "@/hooks/useChat";
+import { useTheme } from "@/hooks/useTheme";
+import ChatHeader from "@/components/ChatHeader";
 import MessageList from "@/components/MessageList";
+import RetryBar from "@/components/RetryBar";
 import ChatInput from "@/components/ChatInput";
 import styles from "./page.module.css";
 
 export default function ChatPage() {
-  const { messages, loading, sendMessage, clearMessages } = useChat();
-  const bottomRef = useRef<HTMLDivElement>(null);
-
-  // Auto-scroll to bottom on new messages
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
+  const {
+    messages,
+    loading,
+    error,
+    online,
+    sendMessage,
+    stop,
+    clearMessages,
+    retryLast,
+    clearError,
+  } = useChat();
+  const { theme, toggle } = useTheme();
 
   return (
     <div className={styles.page}>
-      {/* Header */}
-      <header className={styles.header}>
-        <div>
-          <h1 className={styles.title}>🤖 AI Assistant</h1>
-          <p className={styles.subtitle}>
-            Powered by learning-ai-harness
-          </p>
-        </div>
-        {messages.length > 0 && (
-          <button
-            className={styles.clearBtn}
-            onClick={clearMessages}
-            aria-label="Clear conversation"
-          >
-            Clear
-          </button>
-        )}
-      </header>
+      <ChatHeader
+        online={online}
+        canClear={messages.length > 0}
+        theme={theme}
+        onToggleTheme={toggle}
+        onClear={clearMessages}
+      />
 
-      {/* Message list */}
       <MessageList messages={messages} loading={loading} />
-      <div ref={bottomRef} />
 
-      {/* Input */}
-      <ChatInput onSend={sendMessage} disabled={loading} />
+      <RetryBar
+        error={error}
+        canRetry={!loading && messages.some((m) => m.role === "user")}
+        onRetry={retryLast}
+        onDismiss={clearError}
+      />
+
+      <ChatInput onSend={sendMessage} loading={loading} onStop={stop} />
     </div>
   );
 }

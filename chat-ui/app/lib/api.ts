@@ -1,0 +1,80 @@
+import {
+  ApiError,
+  type ChatRequest,
+  type ChatResponse,
+  type ConversationTurn,
+} from "./types";
+
+export const API_URL =
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+/**
+ * Post one turn to the stateless harness API.
+ *
+ * The backend owns no conversation state: `conversation` (oldest first) is
+ * the full prior thread, supplied by the caller each time.
+ */
+export async function postChat(
+  message: string,
+  conversation: ConversationTurn[],
+  signal?: AbortSignal
+): Promise<string> {
+  const body: ChatRequest = { message, conversation };
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal,
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") throw err;
+    throw new ApiError(
+      "network",
+      "Could not reach the AI backend. Is it running?"
+    );
+  }
+
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const data = await res.json();
+      detail = (data.detail || data.message || "").toString().slice(0, 300);
+    } catch {
+      try {
+        detail = (await res.text()).slice(0, 300);
+      } catch {
+        /* no body */
+      }
+    }
+    throw new ApiError(
+      "http",
+      detail.length ? `Backend error ${res.status}: ${detail}` : `Backend error ${res.status}`,
+      res.status
+    );
+  }
+
+  let data: ChatResponse;
+  try {
+    data = (await res.json()) as ChatResponse;
+  } catch {
+    throw new ApiError("parse", "Backend returned an unreadable response.");
+  }
+
+  const answer = (data.answer || "").trim() || "No response received.";
+  return answer;
+}
+
+/** Liveness probe for the connection indicator. Resolves to a boolean. */
+export async function isBackendOnline(): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_URL}/health`, { cache: "no-store" });
+    if (!res.ok) return false;
+    const data = await res.json();
+    return data.status === "ok";
+  } catch {
+    return false;
+  }
+}

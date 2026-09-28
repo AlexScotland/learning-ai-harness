@@ -2,44 +2,5 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
-  max-width: 760px;
-  margin: 0 auto;
-  padding: 0 16px;
-}
-
-.header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 20px 0;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 16px;
-}
-
-.title {
-  font-size: 22px;
-  font-weight: 700;
-  margin: 0;
-}
-
-.subtitle {
-  color: var(--text-muted);
-  font-size: 14px;
-  margin: 4px 0 0;
-}
-
-.clearBtn {
-  padding: 8px 16px;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 13px;
-  cursor: pointer;
-  transition: color 0.2s, border-color 0.2s;
-}
-
-.clearBtn:hover {
-  color: var(--text);
-  border-color: var(--text-muted);
+  height: 100dvh;
 }
