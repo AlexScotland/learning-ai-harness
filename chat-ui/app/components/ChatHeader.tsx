@@ -9,6 +9,8 @@ interface Props {
   theme: Theme;
   onToggleTheme: () => void;
   onClear: () => void;
+  componentsOpen: boolean;
+  onToggleComponents: () => void;
 }
 
 export default function ChatHeader({
@@ -17,6 +19,8 @@ export default function ChatHeader({
   theme,
   onToggleTheme,
   onClear,
+  componentsOpen,
+  onToggleComponents,
 }: Props) {
   const status =
     online === null ? "checking" : online ? "online" : "offline";
@@ -62,6 +66,14 @@ export default function ChatHeader({
             New chat
           </button>
         )}
+        <button
+          className={styles.ghost}
+          onClick={onToggleComponents}
+          title={componentsOpen ? "Hide agent components" : "Show agent components (live swap)"}
+          aria-pressed={componentsOpen}
+        >
+          {componentsOpen ? "Components ✓" : "Components"}
+        </button>
         <button
           className={styles.iconBtn}
           onClick={onToggleTheme}

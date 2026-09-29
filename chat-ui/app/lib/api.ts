@@ -1,7 +1,9 @@
 import {
   ApiError,
+  type ActivateComponentsRequest,
   type ChatRequest,
   type ChatResponse,
+  type ComponentsStatus,
   type ConversationTurn,
 } from "./types";
 
@@ -65,6 +67,68 @@ export async function postChat(
 
   const answer = (data.answer || "").trim() || "No response received.";
   return answer;
+}
+
+/** Read the live agent component configuration (slots + presets). */
+export async function getComponents(): Promise<ComponentsStatus> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/api/components`, { cache: "no-store" });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") throw err;
+    throw new ApiError("network", "Could not reach the AI backend. Is it running?");
+  }
+
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const data = await res.json();
+      detail = (data.detail || data.message || "").toString().slice(0, 300);
+    } catch {
+      /* no body */
+    }
+    throw new ApiError("http", detail ? `Backend error ${res.status}: ${detail}` : `Backend error ${res.status}`, res.status);
+  }
+
+  try {
+    return (await res.json()) as ComponentsStatus;
+  } catch {
+    throw new ApiError("parse", "Backend returned an unreadable component status.");
+  }
+}
+
+/** Swap components in at runtime: a whole preset or one slot alias. */
+export async function activateComponents(
+  request: ActivateComponentsRequest
+): Promise<ComponentsStatus> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/api/components/activate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") throw err;
+    throw new ApiError("network", "Could not reach the AI backend. Is it running?");
+  }
+
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const data = await res.json();
+      detail = (data.detail || data.message || "").toString().slice(0, 300);
+    } catch {
+      /* no body */
+    }
+    throw new ApiError("http", detail ? `Backend error ${res.status}: ${detail}` : `Backend error ${res.status}`, res.status);
+  }
+
+  try {
+    return (await res.json()) as ComponentsStatus;
+  } catch {
+    throw new ApiError("parse", "Backend returned an unreadable component status.");
+  }
 }
 
 /** Liveness probe for the connection indicator. Resolves to a boolean. */

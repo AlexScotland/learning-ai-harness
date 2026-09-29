@@ -25,6 +25,31 @@ export interface ChatResponse {
   answer: string;
 }
 
+/* ── Component hot-swap (backend /api/components contract) ── */
+
+export interface ComponentAlias {
+  alias: string;
+  version: string;
+  description: string;
+}
+
+export interface SlotInfo {
+  active: string | null;
+  available: ComponentAlias[];
+}
+
+/** Response of GET /api/components and POST /api/components/activate. */
+export interface ComponentsStatus {
+  slots: Record<string, SlotInfo>;
+  presets: Record<string, Record<string, string>>;
+}
+
+export interface ActivateComponentsRequest {
+  preset?: string;
+  slot?: string;
+  alias?: string;
+}
+
 /** Thrown by the api client for any non-2xx or network failure. */
 export class ApiError extends Error {
   readonly kind: "network" | "http" | "parse";

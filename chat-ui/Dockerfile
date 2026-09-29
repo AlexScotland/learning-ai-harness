@@ -46,6 +46,21 @@ RUN if [ -f package-lock.json ]; then \
 # .dockerignore, so this is safe and fast).
 COPY . .
 
+# Guard: fail loudly if ANY source file arrived EMPTY in the build context.
+# Root-owned / 0600 files on the host can be turned into 0-byte placeholders
+# by the COPY archiver, which previously produced the confusing
+# TS2306 "File ... is not a module" type-check error deep inside `next build`.
+# Fix on the host (sweep the whole tree, not just the one failing file):
+#   find . -path ./node_modules -prune -o -type f -user root -print0 \
+#     | xargs -0 -r sudo chown <your-user>:<your-group>
+#   find . -path ./node_modules -prune -o -type f -user root -print0 \
+#     | xargs -0 -r sudo chmod 644
+RUN if find app -type f -empty | grep -q .; then \
+        echo "FATAL: empty source files in build context (host permission issue?):"; \
+        find app -type f -empty; \
+        exit 1; \
+    fi
+
 # Run the production build.  With output:'standalone' in next.config.js this
 # emits:
 #   .next/standalone/          ← self-contained server (server.js + minimal node_modules)

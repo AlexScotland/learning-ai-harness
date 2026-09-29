@@ -1,14 +1,17 @@
 "use client";
 
+import { useState } from "react";
 import { useChat } from "@/hooks/useChat";
 import { useTheme } from "@/hooks/useTheme";
 import ChatHeader from "@/components/ChatHeader";
 import MessageList from "@/components/MessageList";
 import RetryBar from "@/components/RetryBar";
+import ComponentPanel from "@/components/ComponentPanel";
 import ChatInput from "@/components/ChatInput";
 import styles from "./page.module.css";
 
 export default function ChatPage() {
+  const [componentsOpen, setComponentsOpen] = useState(false);
   const {
     messages,
     loading,
@@ -30,7 +33,11 @@ export default function ChatPage() {
         theme={theme}
         onToggleTheme={toggle}
         onClear={clearMessages}
+        componentsOpen={componentsOpen}
+        onToggleComponents={() => setComponentsOpen((open) => !open)}
       />
+
+      <ComponentPanel open={componentsOpen} onClose={() => setComponentsOpen(false)} />
 
       <MessageList messages={messages} loading={loading} />
 
