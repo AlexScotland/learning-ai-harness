@@ -71,6 +71,12 @@ class ComponentRegistry:
         self._presets: dict[str, dict[ComponentSlot, str]] = {}
         self._listeners: list = []
         self._generations: dict[ComponentSlot, int] = {s: 0 for s in ALL_SLOTS}
+        # The `primitives` namespace (graph nodes): a parallel, closed-vocabulary
+        # namespace — NOT a 7th slot; the six agent slots stay sacred. One door:
+        # registered here, described by describe()/GET /api/components.
+        self._primitives: dict[str, _Entry] = {}
+        self._primitive_instances: dict[str, object] = {}
+        self._graphs_view: object = None
 
     # ── registration ───────────────────────────────────────────
 
@@ -242,6 +248,61 @@ class ComponentRegistry:
         with self._lock:
             return ComponentSlot(slot) in self._instances
 
+    # ── primitives namespace (the graph nodes, one door) ─────────
+
+    def register_primitive(self, alias, component, version: str = "1.0.0", description: str = ""):
+        """Register a graph-node primitive by name.
+
+        ``component`` is a NodeBase subclass (instantiated on first use) or a
+        ready instance. Re-registering a name replaces the primitive, so a
+        contributor's node is "a file + a registration" — discovered through
+        this one door (describe() / GET /api/components).
+        """
+        with self._lock:
+            self._primitives[alias] = _Entry(component, version, description)
+            self._primitive_instances.pop(alias, None)
+
+    def primitive(self, alias) -> object:
+        """The live instance behind a primitive name (built once, cached)."""
+        with self._lock:
+            if alias not in self._primitives:
+                known = ", ".join(self._primitives) or "(none)"
+                raise ComponentAliasError(f"Unknown primitive {alias!r}. Known: {known}")
+            cached = self._primitive_instances.get(alias)
+            if cached is not None:
+                return cached
+            value = self._primitives[alias].value
+            instance = value() if callable(value) else value
+            self._primitive_instances[alias] = instance
+            return instance
+
+    def primitive_aliases(self) -> list[str]:
+        with self._lock:
+            return list(self._primitives)
+
+    def set_graphs_view(self, view):
+        """Bind the ``graphs`` block of describe() to a zero-arg callable.
+
+        Wired in main.py to the process-shared GraphStore — the registry
+        stays store-agnostic, and GET /api/components shows both doors
+        (primitives + graphs) in one response.
+        """
+        with self._lock:
+            self._graphs_view = view
+
+    @staticmethod
+    def _primitive_view(alias: str, entry: _Entry) -> dict:
+        """Serializable primitive card (name, version, ports, side effects)."""
+        value = entry.value
+        view = {"name": alias, "version": entry.version, "description": entry.description}
+        for attr in ("requires", "requires_any", "provides", "accepts"):
+            ports = getattr(value, attr, None)
+            if ports:
+                view[attr] = list(ports)
+        if getattr(value, "side_effects", False):
+            view["side_effects"] = True
+        return view
+
     # ── introspection ──────────────────────────────────────────
 
     def describe(self) -> dict:
@@ -257,13 +318,21 @@ class ComponentRegistry:
                     "active": self._aliases.get(slot),
                     "available": entries,
                 }
-            return {
+            view = {
                 "slots": slots,
                 "presets": {
                     name: {s.value: alias for s, alias in mapping.items()}
                     for name, mapping in self._presets.items()
                 },
             }
+            # The graph doors (purely additive blocks — absence = not wired):
+            # the closed primitive vocabulary + the saved/active graphs.
+            view["primitives"] = [
+                self._primitive_view(alias, entry) for alias, entry in self._primitives.items()
+            ]
+            if self._graphs_view is not None:
+                view["graphs"] = self._graphs_view()
+            return view
 
 
 class StaticRegistry:

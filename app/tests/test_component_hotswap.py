@@ -214,7 +214,11 @@ def test_generation_bumps_on_activation(tmp_path):
 def test_describe_shape(tmp_path):
     registry = make_registry(tmp_path)
     describe = registry.describe()
-    assert set(describe) == {"slots", "presets"}
+    # "primitives" is the graph-loop door added in v0 (always present; empty
+    # until register_graph_components runs). "graphs" appears once a store
+    # view is wired (main.py / register_graph_components).
+    assert set(describe) == {"slots", "presets", "primitives"}
+    assert describe["primitives"] == []
     assert set(describe["slots"]) == {s.value for s in ComponentSlot}
     entry = describe["slots"]["executor"]
     assert entry["active"] in {a["alias"] for a in entry["available"]}

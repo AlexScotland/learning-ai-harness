@@ -12,7 +12,10 @@ request, with no restart and no per-request state needed.
 Exposes:
   POST /api/chat               — send a message + prior conversation, get the answer
   GET  /api/components        — live slot/preset configuration (described)
-  POST /api/components/activate — activate a preset, or one slot alias
+  POST /api/components/activate — activate a preset, a slot alias, or the graph
+  GET  /api/graphs            — saved graph documents (loop.graph vocabulary)
+  POST /api/graphs            — save a graph document (validated, id + doc)
+  DELETE /api/graphs/{id}     — delete a saved graph document
   GET  /health                — liveness probe
 """
 
@@ -25,6 +28,7 @@ from pydantic import BaseModel, Field
 from typing import Literal
 
 from components import ComponentSlot
+from components.graph_store import GraphError, describe_graphs, get_graph_store
 from main import build_agent, get_registry
 
 logging.basicConfig(level=logging.INFO)
@@ -72,6 +76,23 @@ class ActivateRequest(BaseModel):
     preset: str | None = Field(default=None, description="Activate a whole preset, e.g. 'fast'.")
     slot: str | None = Field(default=None, description="Activate one slot, e.g. 'executor'.")
     alias: str | None = Field(default=None, description="The alias to activate for the slot.")
+    loop: str | None = Field(default=None, description="Activate the loop slot, e.g. 'graph'.")
+    graph_id: str | None = Field(
+        default=None,
+        description="With loop='graph': make this saved graph the active one.",
+    )
+
+
+class GraphSaveRequest(BaseModel):
+    id: str = Field(..., description="Stable graph id: a [A-Za-z0-9_-] token.")
+    name: str | None = Field(default=None, description="Human-readable name (optional).")
+    graph: dict = Field(
+        ...,
+        description=(
+            "The graph document (validated against the frozen v0 contract: "
+            "closed 8-primitive vocabulary, typed edges, one entry, bounded retries)."
+        ),
+    )
 
 
 class HealthResponse(BaseModel):
@@ -92,19 +113,31 @@ def components_status():
 def activate_components(req: ActivateRequest):
     """Swap components in at runtime.
 
-    Exactly one of ``preset`` (a named slot set) or ``slot`` + ``alias``
-    (a single slot) may be given. The swap affects the next /api/chat turn;
-    an in-flight turn finishes on the component set it started with.
+    Exactly one of ``preset`` (a named slot set), ``slot`` + ``alias`` (a
+    single slot), or ``loop`` (the loop slot — e.g. ``{"loop": "graph",
+    "graph_id": "..."}`` makes a saved graph the active workflow) may be
+    given. The swap affects the next /api/chat turn; an in-flight turn
+    finishes on the component set it started with.
     """
-    if bool(req.preset) == bool(req.slot):
+    chosen = [name for name, value in (("preset", req.preset), ("slot", req.slot), ("loop", req.loop)) if value]
+    if len(chosen) != 1:
         raise HTTPException(
             status_code=400,
-            detail="Provide exactly one of 'preset' or 'slot' (with 'alias' when slot is set).",
+            detail="Provide exactly one of 'preset', 'slot' (with 'alias'), or 'loop'.",
+        )
+    if req.loop and req.loop != "graph" and req.graph_id:
+        raise HTTPException(
+            status_code=400,
+            detail="'graph_id' is only valid with loop='graph'.",
         )
 
     registry = get_registry()
     try:
-        if req.preset:
+        if chosen == ["loop"]:
+            registry.activate(ComponentSlot.LOOP, req.loop)
+            if req.loop == "graph" and req.graph_id:
+                get_graph_store().set_active(req.graph_id)  # GraphError → 400
+        elif chosen == ["preset"]:
             registry.activate_preset(req.preset)
         else:
             try:
@@ -119,12 +152,43 @@ def activate_components(req: ActivateRequest):
             registry.activate(slot, req.alias)
     except HTTPException:
         raise
-    except KeyError as exc:
+    except (GraphError, KeyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"activation failed: {exc}")
 
     return registry.describe()
+
+
+@app.get("/api/graphs")
+def list_graphs():
+    """Saved graph documents (the `loop.graph` vocabulary): the active id +
+    one line per document. Graphs are JSON files; the store validates every
+    document against the frozen v0 contract at save time."""
+    return describe_graphs(get_graph_store())
+
+
+@app.post("/api/graphs")
+def save_graph(req: GraphSaveRequest):
+    """Save (create or overwrite) a graph document by id.
+
+    The document is validated against the frozen v0 contract (closed
+    primitive vocabulary, typed edges, one entry, bounded retries) BEFORE
+    it is persisted — an invalid graph is a 400, never a saved file.
+    """
+    try:
+        return get_graph_store().save(req.id, req.graph, name=req.name)
+    except GraphError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.delete("/api/graphs/{graph_id}")
+def delete_graph(graph_id: str):
+    """Delete a saved graph document (and its last-run record)."""
+    store = get_graph_store()
+    if not store.delete(graph_id):
+        raise HTTPException(status_code=404, detail=f"unknown graph {graph_id!r}")
+    return describe_graphs(store)
 
 
 @app.get("/health", response_model=HealthResponse)

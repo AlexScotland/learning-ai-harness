@@ -98,6 +98,7 @@ def make_loop_plan_execute(ctx: ComponentContext):
     return PlanExecuteLoop()
 
 
+
 def make_loop_direct(ctx: ComponentContext):
     return DirectLoop()
 
@@ -178,3 +179,49 @@ def register_builtin_components(
     for name, mapping in PRESETS.items():
         registry.register_preset(name, mapping)
     registry.activate_preset(activate_preset)
+
+
+def register_graph_components(
+    registry: ComponentRegistry,
+    context: ComponentContext | None = None,
+    graph_store=None,
+) -> None:
+    """Wire the graph loop (v0, docs/graph-loop-designer.md) into a registry.
+
+    Purely additive — the six sacred slots and their presets are untouched:
+      * ``loop.graph`` alias: a GraphLoop bound to THIS registry (the one door
+        to the primitives namespace) and to the given/Process-shared store;
+      * the 8 closed-vocabulary primitives (components/primitives/NODE_CLASSES);
+      * describe() gains the ``graphs`` block (active id + saved documents).
+
+    The graph loop only becomes active when activated explicitly
+    (``POST /api/components/activate {"loop": "graph", "graph_id": ...}``),
+    so default/fresh registries keep their existing behavior.
+    """
+    from .graph_loop import GraphLoop
+    from .graph_store import describe_graphs, get_graph_store
+    from .primitives import NODE_CLASSES
+
+    store = graph_store or get_graph_store()
+
+    def make_loop_graph(ctx: ComponentContext) -> GraphLoop:
+        # Closure captures this registry + store: the loop needs the
+        # primitives namespace, which is parallel to (not one of) the slots.
+        return GraphLoop(registry=registry, context=ctx, graph_store=store)
+
+    registry.register(
+        Slot.LOOP,
+        "graph",
+        make_loop_graph,
+        version="1.0.0",
+        description="GraphLoop: run a saved JSON graph as the loop (activate with loop='graph' + graph_id)",
+    )
+    for name, cls in NODE_CLASSES.items():
+        registry.register_primitive(
+            name, cls, version=cls.version, description=getattr(cls, "description", "")
+        )
+    registry.set_graphs_view(lambda: describe_graphs(store))
+    if context is not None:
+        # Keep the store reachable on the context too (belt + braces for the
+        # context.extras["graph_store"] fallback in GraphLoop.resolve_store).
+        context.extras["graph_store"] = store

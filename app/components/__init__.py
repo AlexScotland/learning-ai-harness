@@ -15,8 +15,10 @@ from .builtin import (
     COMPONENT_ALIASES,
     PRESETS,
     register_builtin_components,
+    register_graph_components,
 )
 from .context import ComponentContext
+from .graph_loop import GraphLoop
 from .loops import AgentLoop, DirectLoop, LoopComponents, PlanExecuteLoop
 from .manifest import ManifestError, apply_manifest, load_manifest
 from .registry import (
@@ -39,6 +41,7 @@ __all__ = [
     "ComponentRegistry",
     "ComponentSlot",
     "DirectLoop",
+    "GraphLoop",
     "LoopComponents",
     "ManifestError",
     "PER_AGENT_SLOTS",
@@ -47,4 +50,5 @@ __all__ = [
     "apply_manifest",
     "load_manifest",
     "register_builtin_components",
+    "register_graph_components",
 ]

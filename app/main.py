@@ -24,6 +24,7 @@ from components import (
     ComponentSlot,
     apply_manifest,
     register_builtin_components,
+    register_graph_components,
 )
 from inference.config import DEFAULT_MODEL
 from inference.ollama import OllamaProvider
@@ -87,6 +88,9 @@ def get_registry() -> ComponentRegistry:
     )
     registry = ComponentRegistry(context)
     register_builtin_components(registry, context)
+    # The graph loop (loop.graph) + the 8 primitives + the /api/graphs store:
+    # purely additive — activation is explicit, default pipeline untouched.
+    register_graph_components(registry, context)
     _shared_registry = registry
     return _shared_registry
 

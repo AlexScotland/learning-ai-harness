@@ -1,0 +1,221 @@
+"""HTTP contract tests for the graph endpoint (v0, docs/graph-loop-designer.md).
+
+Pinned behaviors:
+  * GET/POST /api/graphs + DELETE /api/graphs/{id} — graphs as JSON files,
+    validated at save time (an invalid graph is a 400, never a saved file);
+  * POST /api/components/activate — the loop/graph_id door:
+    {"loop": "graph", "graph_id": "..."} makes a saved graph the active
+    workflow, exclusive with preset/slot activation;
+  * GET /api/components — the single discovery door: the 8-primitive
+    vocabulary AND the saved/active graphs, in one response.
+
+No network, no real LLM: the registry/store are in-process fakes, exactly
+like the rest of the contract suite.
+
+Run from the ``app/`` directory:
+    .venv-test/bin/pytest tests/ -v
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import pytest
+from fastapi.testclient import TestClient
+from langchain_core.messages import AIMessage
+
+import server
+
+# ── fakes ────────────────────────────────────────────────────────────────────
+
+
+class FakeStructured:
+    def invoke(self, messages):
+        from goals.goal import Goal
+
+        return Goal(intent="fake intent")
+
+
+class FakeLLM:
+    def with_structured_output(self, schema):
+        return FakeStructured()
+
+    def bind_tools(self, tools):
+        return self
+
+    def invoke(self, messages):
+        return AIMessage(content="fake-llm-answer")
+
+
+SERIAL_DOC = {
+    "name": "serial",
+    "nodes": {
+        "prep": {"primitive": "prompt", "config": {"text": "Focus on concrete steps"}},
+        "do": {"primitive": "act"},
+        "judge": {"primitive": "critic"},
+    },
+    "edges": [
+        {"from": "prep", "to": "do", "type": "data"},
+        {"from": "do", "to": "judge", "type": "data"},
+    ],
+}
+
+
+@pytest.fixture()
+def graph_client(monkeypatch, tmp_path):
+    from components import (
+        ComponentContext,
+        ComponentRegistry,
+        register_builtin_components,
+        register_graph_components,
+    )
+    from components.graph_store import GraphStore
+    from tools.tool_registry import ToolRegistry
+
+    store = GraphStore(os.path.join(str(tmp_path), "api-graphs"))
+    context = ComponentContext(llm=FakeLLM(), tools=ToolRegistry(), config=None)
+    registry = ComponentRegistry(context)
+    register_builtin_components(registry, context)
+    register_graph_components(registry, context, graph_store=store)
+    monkeypatch.setattr(server, "get_registry", lambda: registry)
+    monkeypatch.setattr(server, "get_graph_store", lambda: store)
+    return TestClient(server.app), store, registry
+
+
+# ── /api/graphs CRUD ─────────────────────────────────────────────────────────
+
+
+def test_graphs_list_starts_empty(graph_client):
+    client, store, _ = graph_client
+    res = client.get("/api/graphs")
+    assert res.status_code == 200
+    assert res.json() == {"active": None, "graphs": []}
+
+
+def test_save_lists_and_persists_by_id(graph_client):
+    client, store, _ = graph_client
+    res = client.post("/api/graphs", json={"id": "g1", "name": "serial", "graph": SERIAL_DOC})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["id"] == "g1"
+    assert body["active"] is False  # saving is not activation — the doors stay separate
+    assert store.has("g1")
+    listed = client.get("/api/graphs").json()["graphs"]
+    assert [g["id"] for g in listed] == ["g1"]
+
+
+def test_save_invalid_graph_is_rejected_not_persisted(graph_client):
+    client, store, _ = graph_client
+    bad = {"nodes": {"x": {"primitive": "vibecoding"}}, "edges": []}
+    res = client.post("/api/graphs", json={"id": "bad", "graph": bad})
+    assert res.status_code == 400
+    assert "unknown primitive" in res.json()["detail"]
+    assert not store.has("bad")
+    assert client.get("/api/graphs").json()["graphs"] == []
+
+
+def test_save_rejects_branch_side_effects(graph_client):
+    client, store, _ = graph_client
+    doc = {
+        "nodes": {
+            "p": {
+                "primitive": "parallel",
+                "branches": [
+                    {
+                        "name": "b1",
+                        "graph": {
+                            "nodes": {"r": {"primitive": "research"}, "a": {"primitive": "act"}},
+                            "edges": [],
+                        },
+                    }
+                ],
+            }
+        },
+        "edges": [],
+    }
+    res = client.post("/api/graphs", json={"id": "forbidden", "graph": doc})
+    assert res.status_code == 400
+    assert "side-effect" in res.json()["detail"]
+    assert not store.has("forbidden")
+
+
+def test_save_rejects_unknown_id_shape(graph_client):
+    client, store, _ = graph_client
+    res = client.post("/api/graphs", json={"id": "../escape", "graph": SERIAL_DOC})
+    assert res.status_code == 400
+
+
+def test_delete_removes_and_clears_active(graph_client):
+    client, store, _ = graph_client
+    client.post("/api/graphs", json={"id": "g1", "graph": SERIAL_DOC})
+    res = client.delete("/api/graphs/g1")
+    assert res.status_code == 200
+    assert res.json() == {"active": None, "graphs": []}
+    assert client.delete("/api/graphs/g1").status_code == 404
+
+
+# ── activation: the loop/graph_id door ──────────────────────────────────────
+
+
+def test_activate_graph_loop_with_graph_id(graph_client):
+    client, store, registry = graph_client
+    client.post("/api/graphs", json={"id": "g1", "graph": SERIAL_DOC})
+    res = client.post("/api/components/activate", json={"loop": "graph", "graph_id": "g1"})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["slots"]["loop"]["active"] == "graph"
+    assert body["graphs"]["active"] == "g1"
+    assert store.active_id == "g1"
+
+
+def test_activate_graph_loop_without_id_switches_loop_only(graph_client):
+    client, store, _ = graph_client
+    res = client.post("/api/components/activate", json={"loop": "graph"})
+    assert res.status_code == 200
+    assert res.json()["slots"]["loop"]["active"] == "graph"
+    assert store.active_id is None
+
+
+def test_activate_graph_id_requires_graph_loop(graph_client):
+    client, _, _ = graph_client
+    res = client.post(
+        "/api/components/activate", json={"loop": "direct", "graph_id": "g1"}
+    )
+    assert res.status_code == 400
+
+
+def test_activate_scopes_are_exclusive(graph_client):
+    client, _, _ = graph_client
+    assert client.post(
+        "/api/components/activate", json={"preset": "fast", "loop": "graph"}
+    ).status_code == 400
+    assert client.post("/api/components/activate", json={"loop": "graph"}).status_code == 200
+    assert client.post("/api/components/activate", json={}).status_code == 400
+
+
+def test_activate_unknown_loop_alias_is_400(graph_client):
+    client, _, _ = graph_client
+    res = client.post("/api/components/activate", json={"loop": "nope"})
+    assert res.status_code == 400
+
+
+def test_activate_unknown_graph_id_is_400(graph_client):
+    client, _, _ = graph_client
+    res = client.post(
+        "/api/components/activate", json={"loop": "graph", "graph_id": "ghost"}
+    )
+    assert res.status_code == 400
+
+
+# ── the one door: GET /api/components ───────────────────────────────────────
+
+
+def test_components_describe_exposes_primitives_and_graphs(graph_client):
+    client, store, _ = graph_client
+    client.post("/api/graphs", json={"id": "g1", "name": "serial", "graph": SERIAL_DOC})
+    body = client.get("/api/components").json()
+    names = {p["name"] for p in body["primitives"]}
+    assert names == {"prompt", "research", "plan", "act", "critic", "gate", "merge", "parallel"}
+    act = next(p for p in body["primitives"] if p["name"] == "act")
+    assert act["side_effects"] is True
+    assert body["graphs"]["active"] is None  # saved but not activated
