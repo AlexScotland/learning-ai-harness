@@ -30,3 +30,24 @@ class ConversationMemory():
                 for message in self.messages
             ]
         }
+
+
+class TrimmedMemory(ConversationMemory):
+    """Conversation store with a hard context budget.
+
+    Keeps the leading system message (if any) plus the most recent
+    ``max_messages`` entries. A hot-swap target for the `fast` preset:
+    bounds the prompt size regardless of how long the session gets.
+    """
+
+    def __init__(self, max_messages: int = 20):
+        super().__init__()
+        self.max_messages = max(1, int(max_messages))
+
+    def add(self, message):
+        super().add(message)
+        messages = self.messages
+        keep_first = 1 if messages and messages[0].type == "system" else 0
+        overflow = len(messages) - keep_first - self.max_messages
+        if overflow > 0:
+            del messages[keep_first : keep_first + overflow]

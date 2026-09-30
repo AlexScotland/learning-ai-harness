@@ -30,6 +30,15 @@ class AgentState:
     def initialize(self, system_prompt: str):
         self.conversation.add(SystemMessage(content=system_prompt))
 
+    def set_conversation(self, conversation: ConversationMemory):
+        """Swap the backing conversation store (memory-slot hot-swap).
+
+        Called by the runtime when the active ``memory`` component changes:
+        the new store starts empty, which is the documented effect of
+        switching memory backends mid-session.
+        """
+        self.conversation = conversation
+
     def add_message(self, message):
         self.conversation.add(message)
 

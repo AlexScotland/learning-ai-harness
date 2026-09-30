@@ -17,6 +17,22 @@ class EvaluationResult:
 
 
 @dataclass
+class AlwaysCompleteEvaluator:
+    """Evaluates every task as COMPLETE.
+
+    A deliberate hot-swap target: pair with DirectLoop / EchoExecutor (the
+    `offline` preset) for a loop that always answers on the first pass, or
+    use in tests to pin down loop behavior without criteria matching.
+    """
+
+    def evaluate(self, state, task) -> EvaluationResult:
+        return EvaluationResult(
+            action=EvaluationAction.COMPLETE,
+            reason="unconditionally complete",
+        )
+
+
+@dataclass
 class TaskEvaluator:
     """
     Evaluates the results of a task execution to determine if the goal has been achieved.

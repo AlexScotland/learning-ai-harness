@@ -5,9 +5,15 @@ Stateless-by-design: the frontend owns the conversation thread. Every
 message, and the agent is built fresh per request — nothing of the thread
 lives in this process, so a restart loses no conversation state.
 
+Component hot-swap lives on the process-shared registry (see main.py):
+swapping a slot or activating a preset takes effect from the very next
+request, with no restart and no per-request state needed.
+
 Exposes:
-  POST /api/chat   — send a message + prior conversation, get the answer
-  GET  /health     — liveness probe
+  POST /api/chat               — send a message + prior conversation, get the answer
+  GET  /api/components        — live slot/preset configuration (described)
+  POST /api/components/activate — activate a preset, or one slot alias
+  GET  /health                — liveness probe
 """
 
 import logging
@@ -18,7 +24,8 @@ from langchain_core.messages import AIMessage, HumanMessage
 from pydantic import BaseModel, Field
 from typing import Literal
 
-from main import build_agent
+from components import ComponentSlot
+from main import build_agent, get_registry
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("ai-backend")
@@ -61,11 +68,63 @@ class ChatResponse(BaseModel):
     answer: str
 
 
+class ActivateRequest(BaseModel):
+    preset: str | None = Field(default=None, description="Activate a whole preset, e.g. 'fast'.")
+    slot: str | None = Field(default=None, description="Activate one slot, e.g. 'executor'.")
+    alias: str | None = Field(default=None, description="The alias to activate for the slot.")
+
+
 class HealthResponse(BaseModel):
     status: str = "ok"
 
 
 # ── Routes ───────────────────────────────────
+
+
+@app.get("/api/components")
+def components_status():
+    """Describe the live component configuration: for every slot the active
+    alias and the available alternatives, plus all named presets."""
+    return get_registry().describe()
+
+
+@app.post("/api/components/activate")
+def activate_components(req: ActivateRequest):
+    """Swap components in at runtime.
+
+    Exactly one of ``preset`` (a named slot set) or ``slot`` + ``alias``
+    (a single slot) may be given. The swap affects the next /api/chat turn;
+    an in-flight turn finishes on the component set it started with.
+    """
+    if bool(req.preset) == bool(req.slot):
+        raise HTTPException(
+            status_code=400,
+            detail="Provide exactly one of 'preset' or 'slot' (with 'alias' when slot is set).",
+        )
+
+    registry = get_registry()
+    try:
+        if req.preset:
+            registry.activate_preset(req.preset)
+        else:
+            try:
+                slot = ComponentSlot(req.slot)
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unknown slot {req.slot!r} (expected one of: {', '.join(s.value for s in ComponentSlot)})",
+                )
+            if not req.alias:
+                raise HTTPException(status_code=400, detail="'alias' is required with 'slot'.")
+            registry.activate(slot, req.alias)
+    except HTTPException:
+        raise
+    except KeyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"activation failed: {exc}")
+
+    return registry.describe()
 
 
 @app.get("/health", response_model=HealthResponse)
