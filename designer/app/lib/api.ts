@@ -102,7 +102,27 @@ export async function saveGraph(
   } catch (err) {
     guardNetwork(err, "Could not reach the AI backend. Is it running?");
   }
-  return handle(res, (b) => (b as { graphs: GraphsStatus["graphs"] }).graphs.find((g) => g.id === id) ?? (b as never));
+  return handle(res, (b) => {
+    const body = b as
+      | { graphs?: GraphsStatus["graphs"]; id?: string }
+      | null;
+    // Preferred: the family shape {active, graphs:[…]} that GET/DELETE/POST
+    // all return since the parity fix — take the entry we just saved.
+    if (body && Array.isArray(body.graphs)) {
+      return body.graphs.find((g) => g.id === id) ?? (b as never);
+    }
+    // Compatibility: a pre-parity backend returned the saved entry *bare*
+    // ({id,name,active,…}). Accept it when it is the entry we just saved, so
+    // the canvas keeps working on such a server until it is restarted. (A
+    // genuinely wrong payload still throws below, with a clear message.)
+    if (body && typeof body === "object" && body.id === id) {
+      return body as unknown as GraphsStatus["graphs"][number];
+    }
+    throw new ApiError(
+      "parse",
+      `Expected {{active, graphs:[…]}} or the saved entry for "${id}"; got ${JSON.stringify(b).slice(0, 160)}`
+    );
+  });
 }
 
 /** GET /api/graphs/{id} — fetch one saved document (for the canvas). */
