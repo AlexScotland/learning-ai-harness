@@ -25,6 +25,15 @@
       ports:
         - "3010:3000"
 
+    designer:
+      build:
+        context: ./designer/
+        dockerfile: Dockerfile
+        args:
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+      ports:
+        - "3020:3000"
+
     core:
       container_name: searxng-core
       image: docker.io/searxng/searxng:${SEARXNG_VERSION:-latest}

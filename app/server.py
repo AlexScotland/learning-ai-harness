@@ -15,7 +15,9 @@ Exposes:
   POST /api/components/activate — activate a preset, a slot alias, or the graph
   GET  /api/graphs            — saved graph documents (loop.graph vocabulary)
   POST /api/graphs            — save a graph document (validated, id + doc)
+  GET  /api/graphs/{id}       — fetch one saved document (canvas render)
   DELETE /api/graphs/{id}     — delete a saved graph document
+  GET  /api/graphs/{id}/last-run — last run record (events = canvas seam)
   GET  /health                — liveness probe
 """
 
@@ -182,6 +184,22 @@ def save_graph(req: GraphSaveRequest):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@app.get("/api/graphs/{graph_id}")
+def get_graph(graph_id: str):
+    """Fetch one saved graph document by id (id + name + the full document)
+    so the canvas can render it. 404 when the id is not a saved graph."""
+    store = get_graph_store()
+    try:
+        doc = store.get(graph_id)
+    except (KeyError, GraphError):
+        raise HTTPException(status_code=404, detail=f"unknown graph {graph_id!r}")
+    return {
+        "id": graph_id,
+        "name": doc.get("name") or graph_id,
+        "graph": doc,
+    }
+
+
 @app.delete("/api/graphs/{graph_id}")
 def delete_graph(graph_id: str):
     """Delete a saved graph document (and its last-run record)."""
@@ -189,6 +207,24 @@ def delete_graph(graph_id: str):
     if not store.delete(graph_id):
         raise HTTPException(status_code=404, detail=f"unknown graph {graph_id!r}")
     return describe_graphs(store)
+
+
+@app.get("/api/graphs/{graph_id}/last-run")
+def last_graph_run(graph_id: str):
+    """Last recorded run of a saved graph (status, answer, node events) —
+    the API + future-canvas seam (frozen v0 contract: observability).
+    Records are in-memory per process: a server restart clears them (the
+    graph files themselves persist); 404 when unknown or not yet run here."""
+    store = get_graph_store()
+    if graph_id not in store.ids():
+        raise HTTPException(status_code=404, detail=f"unknown graph {graph_id!r}")
+    record = store.last_run(graph_id)
+    if record is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"graph {graph_id!r} has no run recorded in this process yet",
+        )
+    return record
 
 
 @app.get("/health", response_model=HealthResponse)

@@ -145,6 +145,28 @@ def test_save_rejects_unknown_id_shape(graph_client):
     assert res.status_code == 400
 
 
+def test_get_document_returns_id_name_and_graph(graph_client):
+    client, store, _ = graph_client
+    client.post(
+        "/api/graphs",
+        json={"id": "g1", "name": "serial", "graph": SERIAL_DOC},
+    )
+    res = client.get("/api/graphs/g1")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["id"] == "g1"
+    assert body["name"] == "serial"
+    assert body["graph"]["nodes"]["do"]["primitive"] == "act"
+    assert [e["to"] for e in body["graph"]["edges"]] == ["do", "judge"]
+
+
+def test_get_document_unknown_id_is_404(graph_client):
+    client, _, _ = graph_client
+    res = client.get("/api/graphs/ghost")
+    assert res.status_code == 404
+    assert "unknown graph" in res.json()["detail"]
+
+
 def test_delete_removes_and_clears_active(graph_client):
     client, store, _ = graph_client
     client.post("/api/graphs", json={"id": "g1", "graph": SERIAL_DOC})
@@ -152,6 +174,54 @@ def test_delete_removes_and_clears_active(graph_client):
     assert res.status_code == 200
     assert res.json() == {"active": None, "graphs": []}
     assert client.delete("/api/graphs/g1").status_code == 404
+
+
+# ── last-run: the API + canvas seam ─────────────────────────────────────────
+
+
+def test_last_run_unknown_graph_is_404(graph_client):
+    client, store, _ = graph_client
+    res = client.get("/api/graphs/ghost/last-run")
+    assert res.status_code == 404
+
+
+def test_last_run_saved_but_never_run_is_404(graph_client):
+    client, store, _ = graph_client
+    client.post("/api/graphs", json={"id": "g1", "graph": SERIAL_DOC})
+    res = client.get("/api/graphs/g1/last-run")
+    assert res.status_code == 404
+    assert "no run recorded" in res.json()["detail"]
+
+
+def test_last_run_returns_the_recorded_run(graph_client):
+    client, store, _ = graph_client
+    client.post("/api/graphs", json={"id": "g1", "graph": SERIAL_DOC})
+    store.record_run(
+        "g1",
+        {
+            "status": "ok",
+            "answer": "fake-llm-answer",
+            "events": [
+                {"event": "start", "node": "prep"},
+                {"event": "done", "node": "judge"},
+            ],
+        },
+    )
+    res = client.get("/api/graphs/g1/last-run")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] == "ok"
+    assert body["answer"] == "fake-llm-answer"
+    assert [e["node"] for e in body["events"]] == ["prep", "judge"]
+    assert isinstance(body["at"], (int, float))
+
+
+def test_delete_clears_last_run_record(graph_client):
+    client, store, _ = graph_client
+    client.post("/api/graphs", json={"id": "g1", "graph": SERIAL_DOC})
+    store.record_run("g1", {"status": "ok", "answer": "x", "events": []})
+    assert client.delete("/api/graphs/g1").status_code == 200
+    assert client.get("/api/graphs/g1/last-run").status_code == 404
 
 
 # ── activation: the loop/graph_id door ──────────────────────────────────────
