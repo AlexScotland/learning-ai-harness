@@ -26,13 +26,40 @@
         - "3010:3000"
 
     designer:
+      # ── Dev-server mode ────────────────────────────────────────────────────
+      # Targets the `build` stage: it keeps the full node_modules + Next CLI.
+      # (The `runner` stage that the production image uses ships a pruned
+      # standalone node_modules without the CLI, so `next dev` cannot run
+      # there.)  The app source is volume-mounted for hot reload, and the
+      # command below overrides the image's production CMD.
+      #
+      # To go back to the production image: delete `target`, `environment`,
+      # `volumes` and `command` from this service, then
+      #   docker compose build designer && docker compose up -d designer
       build:
         context: ./designer/
         dockerfile: Dockerfile
+        target: build
         args:
           NEXT_PUBLIC_API_URL: http://localhost:8000
       ports:
         - "3020:3000"
+      environment:
+        # `next dev` inlines NEXT_PUBLIC_* from the *process* environment at
+        # compile time (build args only apply to `next build`).
+        - NEXT_PUBLIC_API_URL=http://localhost:8000
+        # Bind all interfaces so the dev server is reachable through the
+        # host port mapping.
+        - HOSTNAME=0.0.0.0
+      volumes:
+        # Live source tree — HMR picks up edits without a rebuild.
+        - ./designer/app:/app/app
+        # Fresh in-memory .next for the dev server.  Without this it would
+        # inherit the production build output baked into the `build` stage
+        # image, and the dev server does not clear that on its own.
+        - type: tmpfs
+          target: /app/.next
+      command: npm run dev
 
     core:
       container_name: searxng-core

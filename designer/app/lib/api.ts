@@ -38,10 +38,24 @@ async function handle<T>(res: Response, parse: (body: unknown) => T): Promise<T>
       res.status
     );
   }
+  const text = await res.text();
+  let body: unknown;
   try {
-    return parse((await res.json()) as unknown);
+    body = JSON.parse(text);
   } catch {
-    throw new ApiError("parse", "Backend returned an unreadable response.");
+    throw new ApiError(
+      "parse",
+      `Backend returned a non-JSON response (${res.status}): ${text.slice(0, 200)}`
+    );
+  }
+  try {
+    return parse(body);
+  } catch (err) {
+    const why = err instanceof Error ? err.message : String(err);
+    throw new ApiError(
+      "parse",
+      `Backend response didn't match the expected shape: ${why} — body: ${text.slice(0, 200)}`
+    );
   }
 }
 

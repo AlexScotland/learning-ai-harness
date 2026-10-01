@@ -177,11 +177,16 @@ def save_graph(req: GraphSaveRequest):
     The document is validated against the frozen v0 contract (closed
     primitive vocabulary, typed edges, one entry, bounded retries) BEFORE
     it is persisted — an invalid graph is a 400, never a saved file.
+
+    Returns the same shape as GET /api/graphs and DELETE (``{active,
+    graphs: [...]}``) — one family shape, so the client can parse any of
+    the three endpoints identically.
     """
     try:
-        return get_graph_store().save(req.id, req.graph, name=req.name)
+        get_graph_store().save(req.id, req.graph, name=req.name)
     except GraphError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    return describe_graphs(get_graph_store())
 
 
 @app.get("/api/graphs/{graph_id}")

@@ -97,8 +97,12 @@ def test_save_lists_and_persists_by_id(graph_client):
     res = client.post("/api/graphs", json={"id": "g1", "name": "serial", "graph": SERIAL_DOC})
     assert res.status_code == 200
     body = res.json()
-    assert body["id"] == "g1"
-    assert body["active"] is False  # saving is not activation — the doors stay separate
+    # POST returns the same {active, graphs: [...]} family shape as GET/DELETE
+    # (a bare entry here once broke the designer's saveGraph parse callback).
+    assert body["active"] is None  # saving is not activation — the doors stay separate
+    saved = next(g for g in body["graphs"] if g["id"] == "g1")
+    assert saved["active"] is False
+    assert saved["name"] == "serial"
     assert store.has("g1")
     listed = client.get("/api/graphs").json()["graphs"]
     assert [g["id"] for g in listed] == ["g1"]

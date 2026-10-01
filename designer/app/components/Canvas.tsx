@@ -163,13 +163,16 @@ export default function Canvas({
     setConnect({ from: node.id, type, x: p.x, y: p.y });
   };
 
-  const dropOnNode = (e: React.PointerEvent, node: CanvasNode) => {
-    e.stopPropagation();
+  const dropOnNode = (_e: React.PointerEvent, node: CanvasNode) => {
     if (!connect) return;
     if (connect.from !== node.id) {
       onAddEdge(connect.from, node.id, connect.type);
     }
     setConnect(null);
+    // NOTE: no e.stopPropagation() here. pointerup must keep bubbling to the
+    // window-level `up` listener in the drag effect above — that handler is
+    // what clears `drag`, so swallowing the event left node/pan drags stuck
+    // to the cursor whenever the pointer was released over a node card.
   };
 
   // Wheel zoom (deltaY) + keyboard delete of the selection.
