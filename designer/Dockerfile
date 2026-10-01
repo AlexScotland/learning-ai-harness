@@ -36,6 +36,16 @@ ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 # `npm ci` is deterministic (uses package-lock.json); fall back to `npm install`
 # only if the lock file is absent.
 COPY package.json package-lock.json* ./
+# Fail EARLY and clearly if the build context delivered package.json EMPTY.
+# Known host quirk: files owned by root with mode 0600 can arrive as 0-byte
+# placeholders (the "unexpected end of JSON input" / TS2306 symptom). Fix on
+# the host — sweep the whole context, not just the failing file:
+#   sudo find . -path ./node_modules -prune -o -type f -perm 600 -user root \
+#       -print0 | xargs -0 -r sudo chmod 644
+RUN node -e "JSON.parse(require('fs').readFileSync('package.json','utf8'))" \
+    || { echo "FATAL: package.json is empty/unreadable in the build context (host permission issue)."; \
+         echo "Fix: sudo find . -path ./node_modules -prune -o -type f -perm 600 -user root -print0 | xargs -0 -r sudo chmod 644"; \
+         find . -maxdepth 2 -ls ; exit 1; }
 RUN if [ -f package-lock.json ]; then \
         npm ci --no-audit --no-fund; \
     else \
