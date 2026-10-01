@@ -15,3 +15,6 @@ app/python_workspace
 **/*.dump
 **/*.rdb
 searxng/valkey-data/dump.rdb
+# package manager caches + deps
+.npm-cache/
+node_modules/
