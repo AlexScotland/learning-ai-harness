@@ -1,0 +1,43 @@
+{
+  "nodes": {
+    "prompt_1": {
+      "primitive": "prompt",
+      "config": {
+        "text": "Injected focus: be concrete and cite what you rely on."
+      }
+    },
+    "research_2": {
+      "primitive": "research"
+    },
+    "plan_3": {
+      "primitive": "plan"
+    },
+    "act_4": {
+      "primitive": "act"
+    }
+  },
+  "edges": [
+    {
+      "from": "prompt_1",
+      "to": "research_2",
+      "type": "data"
+    },
+    {
+      "from": "prompt_1",
+      "to": "plan_3",
+      "type": "data"
+    },
+    {
+      "from": "research_2",
+      "to": "act_4",
+      "type": "data"
+    },
+    {
+      "from": "plan_3",
+      "to": "act_4",
+      "type": "data"
+    }
+  ],
+  "name": "loop-095272",
+  "version": "1.0"
+}
