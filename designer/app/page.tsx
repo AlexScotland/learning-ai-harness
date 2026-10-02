@@ -193,10 +193,12 @@ export default function Page() {
     return () => clearInterval(iv);
   }, [refreshDoors]);
 
-  // While a run is in flight, poll the canvas seam (~1s) for the live
-  // record — the currently executing node(s). 404s are silent: a
-  // pre-live backend has no in-flight record, and the final read (after
-  // the run resolves) is what onRun always falls back to.
+  // While a run is in flight, poll the canvas seam (300ms — fast enough to
+  // catch short nodes, cheap on a localhost backend) for the live record —
+  // the currently executing node(s). 404s are silent: a pre-live backend
+  // (a server started before the live seam landed — a restart loads it)
+  // has no in-flight record, and the final read (after the run resolves)
+  // is what onRun always falls back to.
   useEffect(() => {
     if (!runActive) return;
     let cancelled = false;
@@ -237,7 +239,7 @@ export default function Page() {
       }
     };
     void poll();
-    const iv = setInterval(() => void poll(), 1000);
+    const iv = setInterval(() => void poll(), 300);
     return () => {
       cancelled = true;
       clearInterval(iv);

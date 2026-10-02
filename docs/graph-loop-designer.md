@@ -93,7 +93,7 @@ multi-goal graphs, per-run artifacts/DB persistence beyond JSON files.
   the live record while the run is in flight — no new routes, no new
   transport; pre-live backends simply never expose it, so older clients
   degrade to the post-run read.
-- The designer polls that seam ~1s while `POST /api/chat` is pending and
+- The designer polls that seam ~300ms while `POST /api/chat` is pending and
   folds the (possibly partial) event list into per-node states
   (`start→running`, `done→ok`, `failure→failed`, `retry→running`,
   `skipped`, `aborted→failed` — order-folding, so control-edge re-runs
