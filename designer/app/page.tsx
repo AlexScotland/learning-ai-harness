@@ -114,6 +114,10 @@ export default function Page() {
   // visible until the next run or a different graph is loaded.
   const [runActive, setRunActive] = useState(false);
   const [runRecord, setRunRecord] = useState<LastRun | null>(null);
+  /** When the current run armed (client ms) — the poller must not apply a
+   *  finished record that predates it (the PREVIOUS run, seen in the
+   *  save→activate window before this run's live record exists). */
+  const [armTs, setArmTs] = useState(0);
 
   const resetRunView = useCallback(() => {
     setRunActive(false);
@@ -196,10 +200,33 @@ export default function Page() {
   useEffect(() => {
     if (!runActive) return;
     let cancelled = false;
+    // Apply polled records MONOTONICALLY — a slower (older) response must
+    // never replace a newer one, and the previous run's records must not
+    // flash on the canvas in the save→activate window:
+    //  - live → live: always (events grow);
+    //  - live → finished, or finished → (newer) finished: only if strictly
+    //    newer (a finished run's `at` is always later than its live `at`);
+    //  - a settled record predating the run's arm is the PREVIOUS run —
+    //    wait for this run's live record (1s tolerance for clock skew);
+    //  - a live record never supersedes a newer finished one (a late
+    //    in-flight poll arriving after the run settled).
+    const apply = (rec: LastRun) => {
+      const now = rec.at * 1000;
+      setRunRecord((prev) => {
+        if (prev === null) {
+          if (rec.status === "running") return rec;
+          return now >= armTs - 1000 ? rec : prev;
+        }
+        if (prev.status === "running" && rec.status === "running") return rec;
+        if (prev.status !== "running" && rec.status === "running")
+          return rec.at > prev.at ? rec : prev;
+        return rec.at > prev.at ? rec : prev;
+      });
+    };
     const poll = async () => {
       try {
         const rec = await getLastRun(graph.id);
-        if (!cancelled) setRunRecord(rec);
+        if (!cancelled) apply(rec);
       } catch (e) {
         // Only 404 (nothing in flight on an old backend) is expected;
         // everything else is a transient network blip — keep the last
@@ -215,7 +242,7 @@ export default function Page() {
       cancelled = true;
       clearInterval(iv);
     };
-  }, [runActive, graph.id]);
+  }, [runActive, graph.id, armTs]);
 
   // ── graph mutations (the working copy) ────────────────────────────────────
 
@@ -449,6 +476,9 @@ export default function Page() {
       // Arm the live view: the poller starts tracking the run as soon as it
       // begins (POST /api/chat blocks until the WHOLE run is done, so the
       // canvas highlight happens DURING this await — the canvas seam).
+      // armTs also bounds the poller: finished records older than this
+      // belong to the PREVIOUS run (the save→activate window).
+      setArmTs(Date.now());
       setRunActive(true);
       setRunRecord(null);
       let note: string | undefined;
