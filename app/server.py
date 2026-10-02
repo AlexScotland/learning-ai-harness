@@ -216,14 +216,22 @@ def delete_graph(graph_id: str):
 
 @app.get("/api/graphs/{graph_id}/last-run")
 def last_graph_run(graph_id: str):
-    """Last recorded run of a saved graph (status, answer, node events) —
+    """Run record for a saved graph (status, answer, node events) —
     the API + future-canvas seam (frozen v0 contract: observability).
-    Records are in-memory per process: a server restart clears them (the
-    graph files themselves persist); 404 when unknown or not yet run here."""
+
+    While a run is IN FLIGHT this returns the LIVE record
+    ({status: "running", at, events: [...so far]}), so the designer can
+    highlight the currently executing node; poll it while /api/chat is
+    pending and the finished record ({ok|failed, answer, events}) appears
+    afterwards. Records are in-memory per process: a server restart clears
+    them (the graph files themselves persist); 404 when unknown or not yet
+    run here and nothing is in flight."""
     store = get_graph_store()
     if graph_id not in store.ids():
         raise HTTPException(status_code=404, detail=f"unknown graph {graph_id!r}")
-    record = store.last_run(graph_id)
+    record = store.live_run(graph_id)
+    if record is None:
+        record = store.last_run(graph_id)
     if record is None:
         raise HTTPException(
             status_code=404,

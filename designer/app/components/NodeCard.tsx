@@ -10,12 +10,16 @@ import {
   type CanvasNode,
   type PrimitiveMeta,
 } from "../lib/graph";
+import type { NodeRunState } from "../lib/run";
 
 interface Props {
   node: CanvasNode;
   meta: Map<string, PrimitiveMeta>;
   selected: boolean;
   connectActive: boolean;
+  /** Run state from the canvas seam (live or finished): null when the
+   *  node never ran. "running" = the node is EXECUTING right now. */
+  status?: NodeRunState | null;
   onCardPointerDown: (e: React.PointerEvent, node: CanvasNode) => void;
   onOutPointerDown: (
     e: React.PointerEvent,
@@ -33,6 +37,7 @@ export default function NodeCard({
   meta,
   selected,
   connectActive,
+  status = null,
   onCardPointerDown,
   onOutPointerDown,
   onInPointerUp,
@@ -48,11 +53,14 @@ export default function NodeCard({
       ? `${node.branches.length} branch${node.branches.length === 1 ? "" : "es"}`
       : null;
 
+  const statusClass = status ? styles[status] : "";
+
   return (
     <div
-      className={`${styles.node} ${selected ? styles.selected : ""}`}
+      className={`${styles.node} ${selected ? styles.selected : ""} ${statusClass}`}
       style={{ left: node.x, top: node.y, width: NODE_W }}
       data-node={node.id}
+      data-run-state={status ?? undefined}
       onPointerUp={(e) => onInPointerUp(e, node)}
     >
       <header
@@ -61,6 +69,14 @@ export default function NodeCard({
       >
         <span className={styles.primitive}>{node.primitive}</span>
         <span className={styles.id}>{node.id}</span>
+        {status === "running" && (
+          <span
+            className={styles.stateDot}
+            role="status"
+            aria-label={`Node ${node.id} is running`}
+            title={`Node ${node.id} is running`}
+          />
+        )}
         <button
           type="button"
           className={styles.remove}

@@ -11,6 +11,7 @@ import TestPanel from "./components/TestPanel";
 import { useTheme } from "./hooks/useTheme";
 import {
   activate,
+  ApiError,
   deleteGraph,
   getComponents,
   getGraph,
@@ -20,6 +21,10 @@ import {
   postChat,
   saveGraph,
 } from "./lib/api";
+import {
+  deriveNodeStates,
+  type NodeRunState,
+} from "./lib/run";
 import {
   FALLBACK_PRIMITIVES,
   fromDoc,
@@ -102,6 +107,19 @@ export default function Page() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ ok: boolean; msg: string } | null>(null);
 
+  // Live run view (the canvas seam): armed while a run is in flight; the
+  // poller keeps runRecord fresh (status "running" + events so far) so the
+  // current node can be highlighted on the canvas. After the run ends, the
+  // finished record (ok/failed) stays here — the finished states remain
+  // visible until the next run or a different graph is loaded.
+  const [runActive, setRunActive] = useState(false);
+  const [runRecord, setRunRecord] = useState<LastRun | null>(null);
+
+  const resetRunView = useCallback(() => {
+    setRunActive(false);
+    setRunRecord(null);
+  }, []);
+
   const meta = useMemo(
     () => new Map(primitives.map((p) => [p.primitive, p])),
     [primitives]
@@ -115,6 +133,13 @@ export default function Page() {
   const issues = useMemo(() => checkCanvas(graph, meta), [graph, meta]);
 
   const docJson = useMemo(() => JSON.stringify(toDoc(graph), null, 2), [graph]);
+
+  // Per-node run states for the canvas (the live record while a run is in
+  // flight; the finished record afterwards — the same shapes, one seam).
+  const nodeStates = useMemo(
+    () => (runRecord && runRecord.events.length > 0 ? deriveNodeStates(runRecord.events) : null),
+    [runRecord]
+  );
 
   const notify = useCallback((ok: boolean, msg: string) => {
     setToast({ ok, msg });
@@ -163,6 +188,34 @@ export default function Page() {
     const iv = setInterval(() => void refreshDoors(), 5000);
     return () => clearInterval(iv);
   }, [refreshDoors]);
+
+  // While a run is in flight, poll the canvas seam (~1s) for the live
+  // record — the currently executing node(s). 404s are silent: a
+  // pre-live backend has no in-flight record, and the final read (after
+  // the run resolves) is what onRun always falls back to.
+  useEffect(() => {
+    if (!runActive) return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const rec = await getLastRun(graph.id);
+        if (!cancelled) setRunRecord(rec);
+      } catch (e) {
+        // Only 404 (nothing in flight on an old backend) is expected;
+        // everything else is a transient network blip — keep the last
+        // good value rather than flashing the canvas.
+        if (e instanceof ApiError && e.kind === "http" && e.status === 404) {
+          /* wait quietly */
+        }
+      }
+    };
+    void poll();
+    const iv = setInterval(() => void poll(), 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(iv);
+    };
+  }, [runActive, graph.id]);
 
   // ── graph mutations (the working copy) ────────────────────────────────────
 
@@ -297,12 +350,13 @@ export default function Page() {
         setGraph(g);
         setBaseline(JSON.stringify(toDoc(g)));
         setSelection(null);
+        resetRunView(); // don't leak another graph's run states onto this canvas
         notify(true, `Loaded ${id}.`);
       } catch (e) {
         notify(false, e instanceof Error ? e.message : String(e));
       }
     },
-    [notify]
+    [notify, resetRunView]
   );
 
   const newGraph = useCallback(() => {
@@ -311,8 +365,9 @@ export default function Page() {
     setGraph(g);
     setBaseline(JSON.stringify(toDoc(g)));
     setSelection(null);
+    resetRunView();
     notify(true, `Fresh graph ${slug} — add nodes and save when ready.`);
-  }, [notify]);
+  }, [notify, resetRunView]);
 
   // ── persistence + activation + run ────────────────────────────────────────
 
@@ -365,11 +420,12 @@ export default function Page() {
       setGraph(g);
       setBaseline(JSON.stringify(toDoc(g)));
       setSelection(null);
+      resetRunView();
       notify(true, `Duplicated as ${id}.`);
     } catch (e) {
       notify(false, e instanceof Error ? e.message : String(e));
     }
-  }, [graph, notify, refreshDoors]);
+  }, [graph, notify, refreshDoors, resetRunView]);
 
   const onDelete = useCallback(async () => {
     const confirm = window.confirm(`Delete saved graph "${graph.id}"? This is permanent.`);
@@ -380,35 +436,48 @@ export default function Page() {
       setGraph(g);
       setBaseline(JSON.stringify(toDoc(g)));
       setSelection(null);
+      resetRunView();
       await refreshDoors();
       notify(true, `Deleted ${graph.id}.`);
     } catch (e) {
       notify(false, e instanceof Error ? e.message : String(e));
     }
-  }, [graph.id, notify, refreshDoors]);
+  }, [graph.id, notify, refreshDoors, resetRunView]);
 
   const onRun = useCallback(
     async (goal: string) => {
+      // Arm the live view: the poller starts tracking the run as soon as it
+      // begins (POST /api/chat blocks until the WHOLE run is done, so the
+      // canvas highlight happens DURING this await — the canvas seam).
+      setRunActive(true);
+      setRunRecord(null);
       let note: string | undefined;
-      if (dirty) {
-        await doSave();
-        note = `Saved, then activated + ran ${goal.slice(0, 40)}…`;
-      } else {
-        await activate({ loop: "graph", graph_id: graph.id });
-        note = `Activated + ran ${goal.slice(0, 40)}…`;
-      }
-      const answer = await postChat(goal, []);
-      // The run is recorded server-side; read it back through the canvas seam.
-      let run: LastRun = { status: "ok", at: Date.now() / 1000, answer, events: [] };
       try {
-        const rec = await getLastRun(graph.id);
-        run = { ...run, ...rec };
-      } catch {
-        /* backend has no last-run yet — fall back to the chat answer */
-        note = (note ?? "") + " (no node-event record; showing answer)";
+        if (dirty) {
+          await doSave();
+          note = `Saved, then activated + ran ${goal.slice(0, 40)}…`;
+        } else {
+          await activate({ loop: "graph", graph_id: graph.id });
+          note = `Activated + ran ${goal.slice(0, 40)}…`;
+        }
+        const answer = await postChat(goal, []);
+        // The run is recorded server-side; read it back through the canvas seam.
+        let run: LastRun = { status: "ok", at: Date.now() / 1000, answer, events: [] };
+        try {
+          const rec = await getLastRun(graph.id);
+          run = { ...run, ...rec };
+        } catch {
+          /* backend has no last-run yet — fall back to the chat answer */
+          note = (note ?? "") + " (no node-event record; showing answer)";
+        }
+        // Settle on the FINISHED record (ok/failed + full event list): its
+        // per-node states stay visible on the canvas until the next run.
+        setRunRecord(run);
+        await refreshDoors();
+        return { run, note };
+      } finally {
+        setRunActive(false);
       }
-      await refreshDoors();
-      return { run, note };
     },
     [dirty, doSave, graph.id, refreshDoors]
   );
@@ -462,6 +531,7 @@ export default function Page() {
             onRemoveNode={removeNode}
             onAddEdge={addEdge}
             onRemoveEdge={removeEdge}
+            nodeStates={nodeStates}
           />
         </section>
 
@@ -481,6 +551,7 @@ export default function Page() {
             graphId={graph.id}
             dirty={dirty}
             onRun={onRun}
+            nodeStates={nodeStates}
           />
         </div>
       </div>

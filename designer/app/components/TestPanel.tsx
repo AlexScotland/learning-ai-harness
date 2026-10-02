@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import styles from "./TestPanel.module.css";
+import { runningNodes, type NodeRunState } from "../lib/run";
 import type { LastRun } from "../lib/types";
 
 interface Props {
@@ -9,13 +10,15 @@ interface Props {
   graphId: string;
   dirty: boolean;
   onRun: (goal: string) => Promise<{ run: LastRun; note?: string }>;
+  /** Per-node run states (the canvas seam) — live while a run is in flight. */
+  nodeStates?: Map<string, NodeRunState> | null;
 }
 
 type Phase = "idle" | "running" | "done" | "failed";
 
 /** The test bench: one goal in, the graph's answer + node-event stream out
  *  (frozen v0 rule: runs are evidence, never assertions). */
-export default function TestPanel({ online, graphId, dirty, onRun }: Props) {
+export default function TestPanel({ online, graphId, dirty, onRun, nodeStates = null }: Props) {
   const [goal, setGoal] = useState(
     "Explain how this harness hot-swaps components, in 3 bullets citing the slot names."
   );
@@ -86,6 +89,18 @@ export default function TestPanel({ online, graphId, dirty, onRun }: Props) {
           Runs the graph on the backend — real LLM, evidence only.
         </span>
       </div>
+
+      {phase === "running" && (
+        <p className={styles.note} role="status">
+          currently running:{" "}
+          <span className={styles.evNode}>
+            {(() => {
+              const names = runningNodes(nodeStates);
+              return names.length ? names.join(", ") : "…";
+            })()}
+          </span>
+        </p>
+      )}
 
       {note && <p className={styles.note}>{note}</p>}
       {error && <p className={styles.error}>{error}</p>}

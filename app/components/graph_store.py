@@ -7,6 +7,11 @@ Layout (one directory, default ``app/graphs/``):
 Last-run records (answer + node events — the API + future-canvas seam) are
 kept in memory per store instance; documents and the active id persist as
 files, which is what "graphs as JSON files" (the frozen v0 leaning) means.
+
+Live-run records: an in-progress run is mirrored per event (status "running"
++ events so far) so the canvas seam (GET /api/graphs/{id}/last-run) shows
+the CURRENT node in flight, not just the finished run. Same in-memory
+posture as last-run; cleared when the run ends (either way).
 """
 import json
 import os
@@ -18,6 +23,10 @@ from schemas.graph import GraphError, validate_graph
 
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 _META_FILE = "_meta.json"
+
+# Defensive bound on a single live run's mirrored event log (each event is
+# small; a pathological graph should not grow an unbounded per-graph blob).
+LIVE_EVENT_CAP = 500
 
 
 def _default_directory() -> str:
@@ -34,6 +43,7 @@ class GraphStore:
         os.makedirs(self.directory, exist_ok=True)
         self._documents: dict[str, dict] = {}
         self._runs: dict[str, dict] = {}
+        self._live: dict[str, dict] = {}
         self._active_id: str | None = None
         self._load()
 
@@ -122,6 +132,7 @@ class GraphStore:
                 pass
             self._documents.pop(graph_id, None)
             self._runs.pop(graph_id, None)
+            self._live.pop(graph_id, None)
             if self._active_id == graph_id:
                 self._active_id = None
                 self._persist_active()
@@ -178,6 +189,56 @@ class GraphStore:
     def last_run(self, graph_id: str) -> dict | None:
         with self._lock:
             return self._runs.get(graph_id)
+
+    # ── live run (in flight: status "running" + events so far) ─────────
+
+    def begin_run(self, graph_id: str) -> dict:
+        """Open the live record for ``graph_id`` (a new run supersedes any
+        prior live record for the same graph). Returns the live record.
+
+        Shape mirrors the finished record minus the not-yet-there parts
+        (answer/error are explicit nulls): one client type both sides."""
+        with self._lock:
+            live = {
+                "status": "running",
+                "at": round(time.time(), 3),
+                "answer": None,
+                "error": None,
+                "events": [],
+            }
+            self._live[graph_id] = live
+            return live
+
+    def append_event(self, graph_id: str, record: dict):
+        """Mirror one engine event into the live record (no-op when the run
+        has ended or was never begun — e.g. a run started via the REPL)."""
+        with self._lock:
+            live = self._live.get(graph_id)
+            if live is None:
+                return
+            events = live["events"]
+            if len(events) >= LIVE_EVENT_CAP:
+                return
+            events.append(dict(record))
+
+    def clear_live(self, graph_id: str):
+        with self._lock:
+            self._live.pop(graph_id, None)
+
+    def live_run(self, graph_id: str) -> dict | None:
+        """The in-flight record (``status:"running"`` + events so far) or
+        ``None`` when no run is in flight. A copy: callers may mutate."""
+        with self._lock:
+            live = self._live.get(graph_id)
+            if live is None:
+                return None
+            return {
+                "status": live["status"],
+                "at": live["at"],
+                "answer": None,
+                "error": None,
+                "events": list(live["events"]),
+            }
 
 
 # ── process-shared default (server + loop share ONE store per process) ──────

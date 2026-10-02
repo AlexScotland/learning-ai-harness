@@ -152,3 +152,67 @@
   font-size: 10px;
   color: var(--warn);
 }
+
+/* ── run states (the canvas seam: the node in flight, then the outcome) ── */
+
+.running {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent),
+    var(--shadow-soft);
+  animation: nodePulse 1.3s ease-in-out infinite;
+}
+
+@keyframes nodePulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent),
+      var(--shadow-soft);
+  }
+  50% {
+    box-shadow: 0 0 0 7px color-mix(in srgb, var(--accent) 14%, transparent),
+      var(--shadow-soft);
+  }
+}
+
+.ok {
+  border-color: color-mix(in srgb, var(--ok) 65%, var(--border));
+}
+
+.failed {
+  border-color: var(--error);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--error) 28%, transparent),
+    var(--shadow-soft);
+}
+
+.skipped {
+  border-style: dashed;
+  border-color: var(--text-faint);
+  opacity: 0.82;
+}
+
+.stateDot {
+  width: 10px;
+  height: 10px;
+  margin-left: 6px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  border-top-color: transparent;
+  flex: none;
+  animation: stateSpin 0.9s linear infinite;
+}
+
+@keyframes stateSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .running {
+    animation: none;
+  }
+  .stateDot {
+    animation: none;
+    border-top-color: var(--accent);
+  }
+}

@@ -74,16 +74,28 @@ def _verdict_failed(outputs: dict) -> bool:
 
 
 class EventSink:
-    """Thread-safe collector of JSON-serializable node events on the state."""
+    """Thread-safe collector of JSON-serializable node events on the state.
 
-    def __init__(self, state):
+    ``on_event`` (optional) mirrors each event to the graph store's live-run
+    record the moment it is emitted — the canvas seam's live-half (see
+    docs/graph-loop-designer.md, "Observability"): the API + future-canvas.
+    It runs OUTSIDE the sink lock (callback first, then record) so a slow
+    mirror can never deadlock the engine; the callback is expected to be
+    cheap and lock-free on its side (GraphStore's own RLock covers it).
+    """
+
+    def __init__(self, state, on_event=None):
         self.state = state
+        self._on_event = on_event
         self._lock = threading.Lock()
         state.metadata.setdefault("graph_events", [])
 
     def append(self, record: dict):
         with self._lock:
             self.state.metadata["graph_events"].append(record)
+            event = self._on_event
+        if event is not None:
+            event(record)
 
     def events(self) -> list[dict]:
         with self._lock:
@@ -443,7 +455,11 @@ class GraphLoop(AgentLoop):
             )
         doc = store.get(graph_id)
         graph = validate_graph(doc)  # belt + braces: a stored doc must still run
-        sink = EventSink(state)
+        # Live-run mirror (the canvas seam): every event also flows to the
+        # store WHILE the run is in flight, so GET /api/graphs/{id}/last-run
+        # reports the current node — then the finished record replaces it.
+        store.begin_run(graph_id)
+        sink = EventSink(state, on_event=lambda rec: store.append_event(graph_id, rec))
         engine = _GraphEngine(
             self, components, state, graph, sink=sink, ledgers=[BudgetLedger(graph.budget)]
         )
@@ -452,9 +468,11 @@ class GraphLoop(AgentLoop):
         except Exception as exc:
             state.transition_to(AgentStatus.FAILED)
             store.record_run(graph_id, {"status": "failed", "error": str(exc), "events": sink.events()})
+            store.clear_live(graph_id)
             raise
         if isinstance(answer, (list, tuple)):
             answer = "\n\n".join(str(a) for a in answer if a is not None)
         state.transition_to(AgentStatus.COMPLETED)
         store.record_run(graph_id, {"status": "ok", "answer": answer, "events": sink.events()})
+        store.clear_live(graph_id)
         return answer

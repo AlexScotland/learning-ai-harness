@@ -228,6 +228,59 @@ def test_delete_clears_last_run_record(graph_client):
     assert client.get("/api/graphs/g1/last-run").status_code == 404
 
 
+def test_last_run_returns_live_record_while_running(graph_client):
+    """IN-FLIGHT run: the seam returns status=running + events so far —
+    the shape the designer polls to highlight the current node. The live
+    record takes precedence over any earlier finished record."""
+    client, store, _ = graph_client
+    client.post("/api/graphs", json={"id": "g1", "graph": SERIAL_DOC})
+    store.record_run("g1", {"status": "ok", "answer": "old", "events": []})
+    store.begin_run("g1")
+    store.append_event("g1", {"event": "start", "node": "prep", "at": 1})
+    store.append_event("g1", {"event": "done", "node": "prep", "at": 2})
+    store.append_event("g1", {"event": "start", "node": "do", "at": 3})
+
+    res = client.get("/api/graphs/g1/last-run")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] == "running"
+    assert body["answer"] is None and body.get("error") is None
+    assert [e["node"] for e in body["events"]] == ["prep", "prep", "do"]
+    assert isinstance(body["at"], (int, float))
+
+
+def test_last_run_falls_back_to_finished_record_once_run_ends(graph_client):
+    """After the live record is cleared (run ended), the endpoint serves
+    the finished record again — the same URL is the whole lifecycle."""
+    client, store, _ = graph_client
+    client.post("/api/graphs", json={"id": "g1", "graph": SERIAL_DOC})
+    store.begin_run("g1")
+    store.append_event("g1", {"event": "start", "node": "prep", "at": 1})
+    res = client.get("/api/graphs/g1/last-run")
+    assert res.json()["status"] == "running"
+
+    store.record_run("g1", {"status": "failed", "error": "boom", "events": [
+        {"event": "start", "node": "prep"}, {"event": "failure", "node": "prep"},
+    ]})
+    store.clear_live("g1")
+    res = client.get("/api/graphs/g1/last-run")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] == "failed"
+    assert body["error"] == "boom"
+
+
+def test_delete_cleared_live_record_to(graph_client):
+    """Deleting a graph drops its in-flight live record as well (parity
+    with the finished-record cleanup)."""
+    client, store, _ = graph_client
+    client.post("/api/graphs", json={"id": "g1", "graph": SERIAL_DOC})
+    store.begin_run("g1")
+    store.append_event("g1", {"event": "start", "node": "prep", "at": 1})
+    assert client.delete("/api/graphs/g1").status_code == 200
+    assert store.live_run("g1") is None
+
+
 # ── activation: the loop/graph_id door ──────────────────────────────────────
 
 

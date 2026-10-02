@@ -56,6 +56,28 @@
   stroke-dasharray: 4 4;
 }
 
+/* The wire feeding the node that is executing right now: thicker, full
+ * opacity, and marching (dashes flow toward the node). */
+.wireActive {
+  stroke: var(--accent);
+  stroke-width: 3;
+  opacity: 1;
+  stroke-dasharray: 7 5;
+  animation: wireFlow 0.7s linear infinite;
+}
+
+@keyframes wireFlow {
+  to {
+    stroke-dashoffset: -12;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wireActive {
+    animation: none;
+  }
+}
+
 .wireLabel {
   font-family: var(--mono);
   font-size: 11px;

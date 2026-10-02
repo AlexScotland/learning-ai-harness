@@ -20,6 +20,10 @@ import {
   type LastRun,
 } from "./types";
 
+/** Re-exported: client code that catches backend errors (e.g. the live-run
+ *  poller, which must ignore 404s) imports it from one door — this module. */
+export { ApiError };
+
 export const API_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 

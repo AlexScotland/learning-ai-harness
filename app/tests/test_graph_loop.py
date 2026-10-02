@@ -18,6 +18,8 @@ Run from the ``app/`` directory:
 import json
 import os
 import sys
+import threading
+import time
 import types
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -109,6 +111,21 @@ class FakeExecutor:
 
 class FlakyExecutor(FakeExecutor):
     """Fails while ``fail_times`` is true, then recovers — for node retries."""
+
+
+class GatedExecutor(FakeExecutor):
+    """Blocks inside execute() until the gate is set — holds the loop
+    MID-RUN (in some node) so the live-run record (the canvas seam) can be
+    observed and asserted. Fakes-only rule: the gate is an oracle, the
+    harness is what is under test."""
+
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.gate = threading.Event()
+
+    def execute(self, task, state):
+        self.gate.wait(timeout=10)
+        return super().execute(task, state)
 
 
 def make_env(tmp_path, llm=None, executor=None):
@@ -532,6 +549,143 @@ def test_parallel_branches_get_fresh_blackboards(tmp_path):
     contents = [m.content for m in state.conversation.messages]
     assert "ANS-gather1" in contents and "ANS-gather2" in contents
     assert contents.index("ANS-gather1") < contents.index("ANS-gather2")  # declared order
+
+
+# ── live-run record (the API + canvas seam: the CURRENT node in flight) ────
+
+
+def _start_background_run(env, graph_id, goal_id="test goal", executor=None):
+    """Save+activate ``graph_id``'s stored doc and run one turn on a worker
+    thread; returns the thread (join before the test exits)."""
+    state = AgentState(
+        agent_id="agent_live",
+        conversation=ConversationMemory(),
+        goal=Goal(intent=goal_id),
+    )
+    components = LoopComponents(executor=executor or env["executor"])
+    errors = []
+
+    def turn():
+        try:
+            env["loop"].run(components, state)
+        except Exception as exc:  # surfaced at the join assertion
+            errors.append(exc)
+
+    t = threading.Thread(target=turn, name="live-run-test", daemon=True)
+    t.start()
+    return t, state, errors
+
+
+def _wait_for_live(store, graph_id, predicate, timeout=5.0):
+    """Poll the live record (bounded) until ``predicate(live)`` holds."""
+    deadline = time.monotonic() + timeout
+    while True:
+        live = store.live_run(graph_id)
+        if live is not None and predicate(live):
+            return live
+        assert time.monotonic() < deadline, "live run never reached the expected state"
+        time.sleep(0.01)
+
+
+LIVE_GRAPH = {
+    "nodes": {
+        "gather": {"primitive": "research", "config": {"task": "GATE-TASK"}},
+        "answer": {"primitive": "act"},
+    },
+    "edges": [{"from": "gather", "to": "answer", "type": "data"}],
+}
+
+
+def test_live_run_exposes_current_node_mid_flight(tmp_path):
+    """While a node is executing, the store's live record says
+    status=running and carries that node's start event — the exact seam the
+    /last-run endpoint and the designer canvas read. The finished record
+    exists ONLY after the run ends, and the live record is cleared."""
+    executor = GatedExecutor()
+    env = make_env(tmp_path, executor=executor)
+    env["store"].save("live-graph", LIVE_GRAPH, name="live graph")
+    env["store"].set_active("live-graph")
+    t, state, errors = _start_background_run(env, "live-graph", executor=executor)
+    try:
+        live = _wait_for_live(
+            env["store"],
+            "live-graph",
+            lambda rec: any(e.get("event") == "start" and e.get("node") == "gather" for e in rec["events"]),
+        )
+        assert live["status"] == "running"
+        assert live["events"][0]["event"] == "start"
+        assert live["events"][0]["node"] == "gather"
+        # The run is IN FLIGHT: the worker thread is parked inside 'gather';
+        # the next node must not have started, and no finished record exists.
+        assert not any(e.get("node") == "answer" for e in live["events"])
+        assert env["store"].last_run("live-graph") is None
+        executor.gate.set()  # release: the run completes on the worker thread
+    finally:
+        t.join(timeout=15.0)
+
+    assert not errors
+    assert env["store"].live_run("live-graph") is None  # live record cleared
+    finished = env["store"].last_run("live-graph")
+    assert finished["status"] == "ok"
+    assert [e["event"] for e in finished["events"]].count("done") == 2
+    assert finished["events"][0]["event"] == "start"
+    assert finished["events"][0]["node"] == "gather"
+
+
+def test_live_run_cleared_on_failure_and_record_keeps_events(tmp_path):
+    """A failed run still mirrors events into the live record (the same
+    seam), and both paths end with: finished record present, live cleared."""
+    executor = GatedExecutor(fail_times=1)
+    env = make_env(tmp_path, executor=executor)
+    env["store"].save("live-fail", LIVE_GRAPH, name="live fail")
+    env["store"].set_active("live-fail")
+    t, state, errors = _start_background_run(env, "live-fail", executor=executor)
+    try:
+        live = _wait_for_live(
+            env["store"],
+            "live-fail",
+            lambda rec: any(e.get("event") == "start" and e.get("node") == "gather" for e in rec["events"]),
+        )
+        assert live["status"] == "running"
+        executor.gate.set()  # release: FakeExecutor(fail_times=1) now raises
+    finally:
+        t.join(timeout=15.0)
+
+    assert errors, "the gated executor was supposed to fail the run"
+    assert env["store"].live_run("live-fail") is None  # live cleared on failure too
+    finished = env["store"].last_run("live-fail")
+    assert finished["status"] == "failed"
+    kinds = [(e["event"], e.get("node")) for e in finished["events"]]
+    assert ("start", "gather") in kinds
+    assert any(k[0] == "failure" and k[1] == "gather" for k in kinds)
+
+
+def test_new_run_supersedes_stale_live_record(tmp_path):
+    """begin_run for the same graph replaces any prior live record (e.g. a
+    run superseded by the next turn) — append_event never resurrects it."""
+    store = GraphStore(os.path.join(str(tmp_path), "supersede"))
+    store.save("g", LIVE_GRAPH, name="supersede")
+    store.begin_run("g")
+    store.append_event("g", {"event": "start", "node": "gather", "at": 1})
+
+    store.begin_run("g")  # same id, new run: the old event must be gone
+    live = store.live_run("g")
+    assert live["status"] == "running"
+    assert live["events"] == []
+
+    store.append_event("g", {"event": "start", "node": "answer", "at": 2})
+    assert [e["node"] for e in store.live_run("g")["events"]] == ["answer"]
+
+
+def test_append_event_noop_after_run_ends(tmp_path):
+    """Late callbacks after clear_live must not resurrect the live record
+    (event emission and run-end are on different locks by design)."""
+    store = GraphStore(os.path.join(str(tmp_path), "late"))
+    store.save("g", LIVE_GRAPH, name="late")
+    store.begin_run("g")
+    store.clear_live("g")
+    store.append_event("g", {"event": "start", "node": "gather", "at": 3})
+    assert store.live_run("g") is None
 
 
 def test_no_registry_is_loud(tmp_path):

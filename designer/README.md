@@ -11,6 +11,9 @@ The backend is the single engine. This app is a canvas over its two doors:
   closed 8-primitive vocabulary** the canvas can build with;
 - `GET/POST/DELETE /api/graphs` (+ `{id}`, `{id}/last-run`) — graphs as
   JSON files, validated at save time (invalid ⇒ 400, never saved).
+  `{id}/last-run` is the **canvas seam**: while a run is in flight it
+  also serves the IN-FLIGHT record (`status: "running"` + events so far) —
+  the designer polls it and highlights the currently executing node.
 
 A **loop** is data, not code: `GraphLoop` (loop alias `graph`) executes the
 active graph per chat turn. Activating
@@ -25,7 +28,7 @@ active graph per chat turn. Activating
 | **Canvas** | positioned node cards with typed ports; drag nodes, drag output→input to wire **data** edges, drag the dashed `⟲ repeat` port of a verdict node (`critic`/`gate`) for a **control** edge with a `max_passes` ceiling; pan (drag background), wheel/buttons zoom; click a wire to select, `Delete` to remove |
 | **Inspector** | graph settings (name, budget ceiling, `max_parallel`); per-node config JSON, budget, `on_failure` (`abort`/`skip`/`retry(n)`); **parallel branches as inline JSON** (fresh-blackboard sub-graphs, `act` rejected inside by the validator); structural checks + the live document JSON |
 | **Library** | the saved documents (`app/graphs/*.json`), active marker, load / duplicate (new id) / delete |
-| **Run bench** | save (if dirty) → activate → one real `/api/chat` turn → answer + the node-event stream read back through `GET /api/graphs/{id}/last-run` (frozen v0 rule: real runs are evidence, never assertions) |
+| **Run bench** | save (if dirty) → activate → one real `/api/chat` turn → answer + the node-event stream read back through `GET /api/graphs/{id}/last-run` (frozen v0 rule: real runs are evidence, never assertions). **Live progress:** while the turn is in flight the canvas + bench track the run — the executing node(s) pulse, the feeding wire animates, the bench lists `currently running: …`; when it ends, node states settle to `ok`/`failed`/`skipped` |
 
 The shipped **killer workflow** (`app/graphs/killer-research.json`):
 parallel research (web + local) → merge → act → critic with 2 bounded

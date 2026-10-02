@@ -46,7 +46,7 @@ additive harness endpoints. LLMs stay external over HTTP.
 | Budgets | Unit = executor budget. Per-node, per-branch, and per-graph ceilings; graph ceiling is binding |
 | Concurrency | Only inside declared `parallel` groups; `max_parallel` cap (default 4); branches run asyncio-concurrently; engine serializes all conversation commits |
 | State isolation | Each execution gets a **fresh blackboard** (per-agent memory; invariant) |
-| Observability | Every node emits `start` / `done` / `result` / `failure` events (JSON-serializable) — the API + future canvas seam |
+| Observability | Every node emits `start` / `done` / `result` / `failure` events (JSON-serializable) — the API + canvas seam. **Since v1:** the same events are mirrored into an in-flight **live record** (`status: "running"` + partial `events`) on the same `GET /api/graphs/{id}/last-run` seam; the finished record (`ok`/`failed` + full events, answer/error) replaces it when the run ends — cleared either way |
 | Tests | **Fakes only** (pattern: `tests/test_component_hotswap.py`). Real-LLM runs are smoke tests, never assertions. Determinism assertion: same graph ⇒ identical conversation *order* across runs |
 | Safety posture | Graph = declarative; **no arbitrary code steps**; side-effect rules are correctness properties (trusted-dev auth model), not a security boundary |
 
@@ -80,8 +80,29 @@ fan-out+merge, branch+merge.
 
 **Out (v1 candidates, listed so nobody surprises us):**
 canvas UI (it *is* the later product, separate project), human-in-loop gate,
-streaming node events to a UI, multi-goal graphs, per-run artifacts/DB
-persistence beyond JSON files.
+multi-goal graphs, per-run artifacts/DB persistence beyond JSON files.
+
+## v1 (lands on the same seams, no new transport)
+
+**Live run status (the "future canvas seam", realized):**
+- The engine's event hook (`EventSink.append`, the single choke point)
+  mirrors each event into a per-graph **live record** in `GraphStore`
+  (in-memory, same posture as last-run records; `LIVE_EVENT_CAP` bound;
+  superseded by the next run, cleared on success AND failure).
+- `GET /api/graphs/{id}/last-run` (one endpoint, whole lifecycle) returns
+  the live record while the run is in flight — no new routes, no new
+  transport; pre-live backends simply never expose it, so older clients
+  degrade to the post-run read.
+- The designer polls that seam ~1s while `POST /api/chat` is pending and
+  folds the (possibly partial) event list into per-node states
+  (`start→running`, `done→ok`, `failure→failed`, `retry→running`,
+  `skipped`, `aborted→failed` — order-folding, so control-edge re-runs
+  read correctly and parallel branches light several nodes at once):
+  the **running node pulses**, the **wire feeding it animates**, and the
+  finished states (`ok`/`failed`/`skipped`) persist after the run. The
+  test bench shows `currently running: …`.
+- SSE over the same event records is the obvious next step if sub-second
+  fidelity is ever wanted — deliberately *not* built for v1.
 
 ## Contributor story (the open-source pitch)
 

@@ -106,7 +106,9 @@ export interface RunEvent {
 }
 
 export interface LastRun {
-  status: "ok" | "failed" | string;
+  /** "running" = the LIVE record (run in flight; events are partial) —
+   *  the same endpoint serves both while the designer polls. */
+  status: "ok" | "failed" | "running" | string;
   at: number;
   answer?: string | null;
   error?: string | null;

@@ -16,6 +16,7 @@ import {
   type CanvasNode,
   type PrimitiveMeta,
 } from "../lib/graph";
+import type { NodeRunState } from "../lib/run";
 
 export type Selection =
   | { kind: "node"; id: string }
@@ -31,6 +32,9 @@ interface Props {
   onRemoveNode: (id: string) => void;
   onAddEdge: (from: string, to: string, type: "data" | "control") => void;
   onRemoveEdge: (key: string) => void;
+  /** Per-node run state (the canvas seam): null while no run has happened;
+   *  "running" entries highlight the node(s) IN FLIGHT. */
+  nodeStates?: Map<string, NodeRunState> | null;
 }
 
 function edgeKey(e: CanvasEdge): string {
@@ -82,6 +86,7 @@ export default function Canvas({
   onRemoveNode,
   onAddEdge,
   onRemoveEdge,
+  nodeStates = null,
 }: Props) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const [pan, setPan] = useState({ x: 50, y: 30 });
@@ -286,6 +291,9 @@ export default function Canvas({
             if (!g) return null;
             const key = edgeKey(edge);
             const selected = selection?.kind === "edge" && selection.key === key;
+            // The wire INTO the node that is executing right now (a control
+            // re-run lights the repeat wire likewise) — the "active wire".
+            const active = nodeStates?.get(edge.to) === "running";
             return (
               <g key={key}>
                 <path
@@ -300,7 +308,9 @@ export default function Canvas({
                   d={g.d}
                   className={`${styles.wire} ${
                     edge.type === "control" ? styles.wireCtl : ""
-                  } ${selected ? styles.wireSel : ""} ${g.valid ? "" : styles.wireBad}`}
+                  } ${selected ? styles.wireSel : ""} ${active ? styles.wireActive : ""} ${
+                    g.valid ? "" : styles.wireBad
+                  }`}
                   fill="none"
                   pointerEvents="none"
                 />
@@ -330,6 +340,7 @@ export default function Canvas({
             meta={meta}
             selected={selection?.kind === "node" && selection.id === node.id}
             connectActive={connect !== null && connect.from !== node.id}
+            status={nodeStates?.get(node.id) ?? null}
             onCardPointerDown={startNodeDrag}
             onOutPointerDown={startConnect}
             onInPointerUp={dropOnNode}
