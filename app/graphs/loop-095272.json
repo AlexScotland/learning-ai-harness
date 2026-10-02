@@ -6,34 +6,21 @@
         "text": "Injected focus: be concrete and cite what you rely on."
       }
     },
-    "research_2": {
-      "primitive": "research"
-    },
-    "plan_3": {
-      "primitive": "plan"
-    },
     "act_4": {
       "primitive": "act"
+    },
+    "research_3": {
+      "primitive": "research"
     }
   },
   "edges": [
     {
       "from": "prompt_1",
-      "to": "research_2",
+      "to": "research_3",
       "type": "data"
     },
     {
-      "from": "prompt_1",
-      "to": "plan_3",
-      "type": "data"
-    },
-    {
-      "from": "research_2",
-      "to": "act_4",
-      "type": "data"
-    },
-    {
-      "from": "plan_3",
+      "from": "research_3",
       "to": "act_4",
       "type": "data"
     }

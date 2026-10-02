@@ -246,13 +246,20 @@ async def health():
 
 
 @app.post("/api/chat", response_model=ChatResponse)
-async def chat(req: ChatRequest):
+def chat(req: ChatRequest):
     """Send a message (plus the frontend's prior conversation) to the AI
     agent and return its answer.
 
     The agent is stateless across requests: ``req.conversation`` is loaded
     fresh for this turn, and any new context the agent creates (goal, plan,
     tool results) is scoped to this call only.
+
+    SYNC ``def`` on purpose: ``agent.chat`` blocks for the whole turn (LLM
+    + tool I/O). Running it in the thread pool (what a ``def`` endpoint
+    gets) keeps the uvicorn event loop free to accept and serve other
+    requests while a turn is in flight — including the
+    ``GET /api/graphs/{id}/last-run`` live-record polls and any concurrent
+    turn. An ``async def`` here would freeze the loop for the entire turn.
     """
     try:
         history = [
